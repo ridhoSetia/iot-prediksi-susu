@@ -7,21 +7,37 @@
 #include <Adafruit_MAX31865.h>
 
 // =================================================================
+// 0. STRUKTUR DATA & FORWARD DECLARATION
+// Wajib ditaruh paling atas agar dikenali oleh Arduino Preprocessor
+// =================================================================
+struct ECReading {
+  bool isSubmerged;
+  float resistance;   // Ohm
+  float conductance;  // mS
+  float ecRaw;        // mS/cm aktual
+  float ec25;         // mS/cm terkompensasi 25°C
+};
+
+// Deklarasi fungsi di awal agar compiler tidak rancu
+ECReading getCalibratedEC(float currentTemperature);
+void updateOled(float suhu, const ECReading &ec);
+
+// =================================================================
 // 1. PIN & KONFIGURASI LAYAR OLED SSD1306 (I2C)
 // =================================================================
-#define OLED_SDA        8
-#define OLED_SCL        9
-#define SCREEN_WIDTH    128
-#define SCREEN_HEIGHT   64
-#define OLED_RESET      -1
-#define SCREEN_ADDRESS  0x3C
+#define OLED_SDA 8
+#define OLED_SCL 9
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+#define SCREEN_ADDRESS 0x3C
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // =================================================================
 // 2. PIN TOMBOL & PENYIMPANAN FLASH INTERNAL (LITTLEFS)
 // =================================================================
-#define BUTTON_PIN      7
+#define BUTTON_PIN 7
 
 bool isStorageReady = false;
 int logCount = 0;
@@ -34,53 +50,99 @@ unsigned long lastDebounceTime = 0;
 const unsigned long debounceDelay = 50;
 
 // =================================================================
-// 3. PIN & KONFIGURASI SENSOR EC
+// 3. PIN & LOGIKA LED RGB 4-PIN (PWM ANALOG)
 // =================================================================
-#define PIN_DRIVE_A     4
-#define PIN_DRIVE_B     5
-#define PIN_ADC_SENSE   1
+#define PIN_LED_RED 15
+#define PIN_LED_GREEN 16
+#define PIN_LED_BLUE 17
 
-const float R_REF       = 1000.0;     // Resistor referensi 1k Ohm
-const float V_IN        = 3.3;        // Tegangan logika ESP32-S3
+// Ubah ke false jika menggunakan LED Common Anode
+const bool IS_COMMON_CATHODE = true;
+
+// Batas nilai intensitas PWM analog (skala 0 - 255)
+const int LED_INTENSITY = 25;
+
+// State Siklus: -1 = Mati, 0 = Merah, 1 = Kuning, 2 = Hijau
+int ledColorState = -1;
+
+void setRgbColor(bool r, bool g, bool b) {
+  // Tentukan nilai PWM: jika aktif set ke 200, jika mati set ke 0
+  int valR = r ? LED_INTENSITY : 0;
+  int valG = g ? LED_INTENSITY : 0;
+  int valB = b ? LED_INTENSITY : 0;
+
+  // Jika Common Anode (Active LOW), balik nilainya (255 - nilai)
+  if (!IS_COMMON_CATHODE) {
+    valR = 255 - valR;
+    valG = 255 - valG;
+    valB = 255 - valB;
+  }
+
+  // Tulis sinyal PWM analog ke masing-masing pin
+  analogWrite(PIN_LED_RED, valR);
+  analogWrite(PIN_LED_GREEN, valG);
+  analogWrite(PIN_LED_BLUE, valB);
+}
+
+void applyNextLedColor() {
+  // Siklus: Merah (0) -> Kuning (1) -> Hijau (2) -> Merah (0)
+  ledColorState = (ledColorState + 1) % 3;
+
+  switch (ledColorState) {
+    case 0:  // Merah (R = 200)
+      setRgbColor(true, false, false);
+      Serial.println("[LED] State 1: Merah (PWM: 200)");
+      break;
+    case 1:  // Kuning (R = 200, G = 200)
+      setRgbColor(true, true, false);
+      Serial.println("[LED] State 2: Kuning (PWM: 200)");
+      break;
+    case 2:  // Hijau (G = 200)
+      setRgbColor(false, true, false);
+      Serial.println("[LED] State 3: Hijau (PWM: 200)");
+      break;
+  }
+}
+
+// =================================================================
+// 4. PIN & KONFIGURASI SENSOR EC
+// =================================================================
+#define PIN_DRIVE_A 4
+#define PIN_DRIVE_B 5
+#define PIN_ADC_SENSE 1
+
+const float R_REF = 1000.0;  // Resistor referensi 1k Ohm
+const float V_IN = 3.3;      // Tegangan logika ESP32-S3
 
 // Parameter Hasil Kalibrasi Dua Titik
-const float CAL_SLOPE   = 2.157738;
-const float CAL_OFFSET  = -1.871534;
+const float CAL_SLOPE = 2.157738;
+const float CAL_OFFSET = -1.871534;
 
 // Koefisien Suhu Standar
-const float ALPHA_TEMP  = 0.020;      // 2.0% per derajat C
+const float ALPHA_TEMP = 0.020;  // 2.0% per derajat C
 
 // Konfigurasi Sampling Rate & Filter EC
-const unsigned long SAMPLING_INTERVAL_MS = 1000; // 1 Hz
+const unsigned long SAMPLING_INTERVAL_MS = 1000;  // 1 Hz
 const int TOTAL_SAMPLES = 40;
-const int TRIM_COUNT    = 8;
+const int TRIM_COUNT = 8;
 
 unsigned long lastSampleTime = 0;
 
-struct ECReading {
-  bool isSubmerged;
-  float resistance;   // Ohm
-  float conductance;  // mS
-  float ecRaw;        // mS/cm aktual
-  float ec25;         // mS/cm terkompensasi 25°C
-};
-
 // Variabel Penampung Data Terkini
 float latestSuhu = 25.0;
-ECReading latestEcData = {false, -1.0, 0.0, 0.0, 0.0};
+ECReading latestEcData = { false, -1.0, 0.0, 0.0, 0.0 };
 
 // =================================================================
-// 4. PIN & KONFIGURASI MAX31865 (PT100)
+// 5. PIN & KONFIGURASI MAX31865 (PT100)
 // =================================================================
 // Software SPI: CS, DI (MOSI), DO (MISO), CLK
 Adafruit_MAX31865 thermo = Adafruit_MAX31865(10, 11, 12, 13);
-#define SENSOR_POWER_PIN 14
 
-#define RREF      426.0
-#define RNOMINAL  100.0
+#define RREF 426.0
+#define RNOMINAL 100.0
 
 // =================================================================
-// 5. FUNGSI PEMBACAAN EC (TRIMMED MEAN FILTER)
+// 6. FUNGSI PEMBACAAN EC (TRIMMED MEAN FILTER)
 // =================================================================
 ECReading getCalibratedEC(float currentTemperature) {
   ECReading data;
@@ -119,16 +181,16 @@ ECReading getCalibratedEC(float currentTemperature) {
 
   // Cek jika probe berada di udara/kering
   if (avgVout >= (V_IN - 0.05) || avgVout <= 0.02) {
-    data.isSubmerged   = false;
-    data.resistance    = -1.0;
-    data.conductance   = 0.0;
-    data.ecRaw         = 0.0;
-    data.ec25          = 0.0;
+    data.isSubmerged = false;
+    data.resistance = -1.0;
+    data.conductance = 0.0;
+    data.ecRaw = 0.0;
+    data.ec25 = 0.0;
     return data;
   }
 
   data.isSubmerged = true;
-  data.resistance  = R_REF * (avgVout / (V_IN - avgVout));
+  data.resistance = R_REF * (avgVout / (V_IN - avgVout));
   data.conductance = 1000.0 / data.resistance;
 
   // Hitung EC Aktual dan Normalisasi Suhu ke 25°C
@@ -141,21 +203,21 @@ ECReading getCalibratedEC(float currentTemperature) {
 }
 
 // =================================================================
-// 6. FUNGSI PEMBACAAN SUHU MAX31865
+// 7. FUNGSI PEMBACAAN SUHU MAX31865
 // =================================================================
 float readPT100Temperature() {
   uint8_t fault = thermo.readFault();
   if (fault) {
     Serial.printf("[FAULT PT100] Kode: 0x%02X\n", fault);
     thermo.clearFault();
-    return 25.0; // Fallback ke suhu acuan jika ada fault
+    return 25.0;  // Fallback ke suhu acuan jika ada fault
   }
 
   return thermo.temperature(RNOMINAL, RREF);
 }
 
 // =================================================================
-// 7. FUNGSI RENDER DISPLAY OLED
+// 8. FUNGSI RENDER DISPLAY OLED
 // =================================================================
 void updateOled(float suhu, const ECReading &ec) {
   display.clearDisplay();
@@ -194,7 +256,7 @@ void updateOled(float suhu, const ECReading &ec) {
 }
 
 // =================================================================
-// 8. FUNGSI MANAJEMEN PENYIMPANAN FLASH INTERNAL (LITTLEFS)
+// 9. FUNGSI MANAJEMEN PENYIMPANAN FLASH INTERNAL (LITTLEFS)
 // =================================================================
 void logDataToFlash() {
   if (!isStorageReady) {
@@ -213,7 +275,6 @@ void logDataToFlash() {
   logCount++;
   unsigned long timeStamp = millis();
 
-  // Format 1 baris JSON utuh (NDJSON)
   char jsonBuffer[256];
   snprintf(jsonBuffer, sizeof(jsonBuffer),
            "{\"id\":%d,\"time_ms\":%lu,\"temp_c\":%.2f,\"ec25\":%.3f,\"ec_raw\":%.3f,\"r_ohm\":%.1f,\"g_ms\":%.3f,\"submerged\":%s}",
@@ -279,38 +340,48 @@ void clearLogData() {
   }
 }
 
+// =================================================================
+// 10. SETUP SISTEM
+// =================================================================
 void setup() {
   Serial.begin(115200);
-  delay(1500); // Beri jeda 1.5 detik agar port USB serial di Linux (/dev/ttyUSB0) stabil
+  delay(1500);
 
   Serial.println("\n========================================");
-  Serial.println("[BOOT 1/5] ESP32-S3 Hidup & Serial Terbaca");
+  Serial.println("[BOOT 1/6] ESP32-S3 Hidup & Serial Terbaca");
   Serial.println("========================================");
 
+  // Inisialisasi Tombol
   pinMode(BUTTON_PIN, INPUT_PULLDOWN);
 
+  // Inisialisasi LED RGB
+  pinMode(PIN_LED_RED, OUTPUT);
+  pinMode(PIN_LED_GREEN, OUTPUT);
+  pinMode(PIN_LED_BLUE, OUTPUT);
+  setRgbColor(false, false, false);
+
   // ==========================================================
-  // Inisialisasi Layar OLED (Dengan Proteksi Timeout)
+  // Inisialisasi Layar OLED
   // ==========================================================
-  Serial.println("[BOOT 2/5] Menghubungkan ke Layar OLED...");
+  Serial.println("[BOOT 2/6] Menghubungkan ke Layar OLED...");
+  delay(100);  // Berikan jeda stabilisasi daya OLED
+
   Wire.begin(OLED_SDA, OLED_SCL);
   Wire.setClock(100000);
-  Wire.setTimeOut(250); // Cegah sistem hang jika OLED tidak merespons!
 
-  bool oledStatus = false;
-  for (int coba = 1; coba <= 3; coba++) {
-    if (display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
-      oledStatus = true;
-      Serial.printf(" -> [OK] Layar OLED terdeteksi (Percobaan %d)\n", coba);
-      break;
+  uint8_t oledAddr = 0;
+  Serial.println("Scan I2C...");
+  for (uint8_t addr = 1; addr < 127; addr++) {
+    Wire.beginTransmission(addr);
+    if (Wire.endTransmission() == 0) {
+      Serial.printf(" -> Perangkat ditemukan di 0x%02X\n", addr);
+      if (addr == 0x3C || addr == 0x3D) oledAddr = addr;
     }
-    Serial.printf(" -> [PERINGATAN] OLED belum siap (Percobaan %d/3)...\n", coba);
-    delay(100);
   }
 
-  if (!oledStatus) {
-    Serial.println(" -> [LEWAT] OLED tidak terdeteksi, melanjutkan program...");
-  } else {
+  if (oledAddr == 0) {
+    Serial.println(" -> [GAGAL] OLED tidak ACK di bus I2C!");
+  } else if (display.begin(SSD1306_SWITCHCAPVCC, oledAddr, false, false)) {
     display.clearDisplay();
     display.setTextColor(SSD1306_WHITE);
     display.setTextSize(1);
@@ -320,25 +391,16 @@ void setup() {
   }
 
   // ==========================================================
-  // Inisialisasi MAX31865
+  // Inisialisasi MAX31865 (Langsung 3.3V)
   // ==========================================================
-  Serial.println("[BOOT 3/5] Menyalakan Sensor MAX31865 (PT100)...");
-  pinMode(SENSOR_POWER_PIN, OUTPUT);
-  digitalWrite(SENSOR_POWER_PIN, HIGH);
-  delay(1);
-  thermo.begin(MAX31865_3WIRE);
-  digitalWrite(SENSOR_POWER_PIN, LOW);
-  delay(1);
-  digitalWrite(SENSOR_POWER_PIN, HIGH);
-  thermo.begin(MAX31865_3WIRE);
+  Serial.println("[BOOT 3/6] Menginisialisasi MAX31865 (PT100)...");
+  thermo.begin(MAX31865_2WIRE);
   Serial.println(" -> [OK] MAX31865 Siap");
 
   // ==========================================================
   // Inisialisasi Flash Internal (LittleFS)
   // ==========================================================
-  Serial.println("[BOOT 4/5] Membuka Flash Internal (LittleFS)...");
-  Serial.println(" -> Catatan: Jika pertama kali, proses format flash memakan waktu 30-60 detik.");
-  
+  Serial.println("[BOOT 4/6] Membuka Flash Internal (LittleFS)...");
   if (!LittleFS.begin(true)) {
     Serial.println(" -> [GAGAL] LittleFS gagal di-mount!");
     isStorageReady = false;
@@ -357,7 +419,7 @@ void setup() {
     }
 
     size_t totalBytes = LittleFS.totalBytes();
-    size_t usedBytes  = LittleFS.usedBytes();
+    size_t usedBytes = LittleFS.usedBytes();
     Serial.printf(" -> [OK] Flash Siap. Terpakai: %u KB / %u KB | Log: %d data\n",
                   usedBytes / 1024, totalBytes / 1024, logCount);
   }
@@ -365,7 +427,7 @@ void setup() {
   // ==========================================================
   // Inisialisasi Sensor EC
   // ==========================================================
-  Serial.println("[BOOT 5/5] Mengaktifkan Pin ADC Sensor EC...");
+  Serial.println("[BOOT 5/6] Mengaktifkan Pin ADC Sensor EC...");
   pinMode(PIN_DRIVE_A, OUTPUT);
   pinMode(PIN_DRIVE_B, OUTPUT);
   pinMode(PIN_ADC_SENSE, INPUT);
@@ -375,11 +437,11 @@ void setup() {
   analogSetAttenuation(ADC_11db);
 
   Serial.println("\n--- SELURUH SISTEM SIAP DIGUNAKAN ---");
-  Serial.println("Tekan tombol Pin 7 atau kirim 'w' di Serial untuk simpan data.");
+  Serial.println("Tekan tombol Pin 7 untuk ganti warna LED & rekam data.");
 }
 
 // =================================================================
-// 10. LOOP UTAMA
+// 11. LOOP UTAMA
 // =================================================================
 void loop() {
   unsigned long currentMillis = millis();
@@ -420,8 +482,9 @@ void loop() {
     if (currentReading != confirmedButtonState) {
       confirmedButtonState = currentReading;
 
-      // Terpicu saat tombol ditekan ke HIGH (rangkaian pull-down)
+      // Terpicu saat tombol ditekan ke HIGH
       if (confirmedButtonState == HIGH) {
+        applyNextLedColor();
         logDataToFlash();
         updateOled(latestSuhu, latestEcData);
       }
@@ -436,26 +499,23 @@ void loop() {
   while (Serial.available()) {
     char cmd = Serial.read();
 
-    // Lewatkan spasi, enter, atau newline
     if (cmd == '\r' || cmd == '\n' || cmd == ' ') continue;
 
     Serial.printf("\n[SERIAL COMMAND] Diterima perintah: '%c'\n", cmd);
 
     if (cmd == 'w' || cmd == 'W') {
       Serial.println("-> Merekam data ke Flash...");
+      applyNextLedColor();
       logDataToFlash();
       updateOled(latestSuhu, latestEcData);
-    } 
-    else if (cmd == 'r' || cmd == 'R') {
+    } else if (cmd == 'r' || cmd == 'R') {
       dumpLogData();
-    } 
-    else if (cmd == 'c' || cmd == 'C') {
+    } else if (cmd == 'c' || cmd == 'C') {
       clearLogData();
       updateOled(latestSuhu, latestEcData);
-    } 
-    else {
+    } else {
       Serial.println("[PANDUAN KONTROL]");
-      Serial.println("  'w' : Rekam 1 data baru ke Flash");
+      Serial.println("  'w' : Ganti warna LED + Rekam data ke Flash");
       Serial.println("  'r' : Tampilkan seluruh isi file log");
       Serial.println("  'c' : Hapus file log");
     }
