@@ -18,7 +18,7 @@ $$\text{C}_{12}\text{H}_{22}\text{O}_{11} + \text{H}_2\text{O} \xrightarrow{\tex
 
 Fermentasi biokimia ini melepaskan ion hidrogen ($H^+$) dan ion laktat ($CH_3CH(OH)COO^-$) ke dalam matriks cairan, yang secara simultan menurunkan derajat keasaman ($pH$) dan meruntuhkan stabilitas misel protein kasein.
 
-Akibatnya, saat susu tiba di pos penampungan KUD setelah melewati masa angkut 2–4 jam, keasaman telah melampaui ambang batas penolakan ($pH < 6.3$ atau uji alkohol positif). Kondisi ini menyebabkan ribuan liter susu ditolak secara sepihak oleh KUD maupun Industri Pengolahan Susu (IPS), memicu fenomena pembuangan susu (*food waste*) dan kerugian finansial langsung bagi peternak.
+Akibatnya, saat susu tiba di pos penampungan KUD setelah melewati masa angkut 2–4 jam, keasaman telah melampaui ambang batas penolakan. Kondisi ini menyebabkan ribuan liter susu ditolak secara sepihak oleh KUD maupun Industri Pengolahan Susu (IPS), memicu fenomena pembuangan susu (*food waste*) dan kerugian finansial langsung bagi peternak.
 
 Metode pengujian konvensional di pos penampungan (seperti uji alkohol tetes manual atau uji *lactodensimeter*) bersifat **reaktif** dan **lagging**—hanya mendeteksi susu yang telah terlanjur rusak tanpa memberikan indikasi prediktif tentang sisa durasi masa simpan susu yang masih segar.
 
@@ -326,15 +326,11 @@ Label biologis mutlak (*ground truth*) diuji secara paralel setiap **30 menit** 
 
 
 
-#### Pengukuran pH Digital:
-
-Probe pH meter laboratorium terkalibrasi dua titik ($pH\ 4.01$ dan $pH\ 6.86$) dicelupkan ke sampel kontrol untuk membaca pergeseran konsentrasi ion hidrogen secara kuantitatif.
-
 #### Logika Penanganan Wadah Dingin (Negative Control & Censored Data):
 
 Susu pada wadah dingin ($10^\circ\text{C} - 15^\circ\text{C}$) tidak akan pecah/rusak dalam rentang pengujian 6 jam. Dalam teori reliabilitas machine learning, kondisi ini merupakan *right-censored biological data* yang sangat valid.
 
-* Seluruh data wadah dingin dari menit ke-0 hingga ke-360 diberi label mutu mutlak: **`GRADE_A`** (karena hasil uji alkohol selalu negatif dan $pH \ge 6.6$).
+* Seluruh data wadah dingin dari menit ke-0 hingga ke-360 diberi label mutu mutlak: **`GRADE_A`** (karena hasil uji alkohol selalu negatif).
 
 
 * Untuk target regresi sisa waktu (`label_shelf_life_min`), sistem menerapkan **Metode Capping Batas Operasional Maksimum (360 Menit)**. Selama suhu $\le 15^\circ\text{C}$ dan konduktivitas stabil, nilai dipatok pada batas atas $360\text{ menit}$. Hal ini menjaga distribusi loss fungsi regresi tetap stabil tanpa terdistorsi oleh angka ekstrapolasi tak hingga.
@@ -360,9 +356,8 @@ Berkas pencatatan gabungan dari MicroSD ESP32-S3 dan log pengujian manual labora
 | elapsed_min         | Int32   | Temporal Operator | Menit relatif sejak awal perah (penyebut Δt).|
 | burst_idx           | Int8    | Metadata (Drop)   | Indeks urutan sampling burst (1 sampai 5).    |
 | temp_c              | Float32 | Feature Input (X) | Temperatur aktual susu (°C) dari PT100  |
-| r_liquid            | Float32 | Sensor Mentah(Drop| Hambatan analog cairan mentah (Ohm)     |
+| r_liquid            | Float32 | Sensor Mentah(Drop)| Hambatan analog cairan mentah (Ohm)     |
 | ec_25               | Float32 | Feature Input (X) | Konduktivitas cairan suhu standar 25°C (mS/cm)|
-| ph_actual           | Float32 | Ground Truth(Drop)| pH objektif dari instrumen pH meter digital.|
 | alcohol_test        | String  | Ground Truth(Drop)| Hasil uji alkohol: NEGATIF, dll.    |
 | label_grade         | String  | Target Output (y1)| Kelas mutu biologis (GRADE_A, B, C)     |
 | label_shelf_life_min| Float32 | Target Output (y2)| Hitung mundur sisa waktu aman (menit)   |
@@ -387,7 +382,7 @@ Sebelum dataset disalurkan ke pipeline model, proses pembersihan dijalankan deng
 [Eliminasi Metadata & Raw Columns (sample_id, timestamp, r_liquid)] --> Mencegah Data Leakage!
      |
      v
-[Pemisahan Ground Truth Biologis (ph_actual, alcohol_test)] ---------> Digunakan murni untuk audit
+[Pemisahan Ground Truth Biologis (alcohol_test)] ---------> Digunakan murni untuk audit
      |
      +-----------------------------------+
      |                                   |
@@ -399,7 +394,7 @@ Sebelum dataset disalurkan ke pipeline model, proses pembersihan dijalankan deng
 
 ```
 
-* **Pencegahan Data Leakage:** Kolom identitas wadah (`sample_id`), stempel waktu (`timestamp`), dan nilai biologis manual (`ph_actual`, `alcohol_test`) **mutlak dibuang**. Jika tidak dibuang, jaringan saraf tiruan akan menghafal bahwa ID wadah tertentu selalu menghasilkan grade tertentu, menyebabkan model gagal melakukan generalisasi di lingkungan baru.
+* **Pencegahan Data Leakage:** Kolom identitas wadah (`sample_id`), stempel waktu (`timestamp`), dan nilai biologis manual (`alcohol_test`) **mutlak dibuang**. Jika tidak dibuang, jaringan saraf tiruan akan menghafal bahwa ID wadah tertentu selalu menghasilkan grade tertentu, menyebabkan model gagal melakukan generalisasi di lingkungan baru.
 
 
 
@@ -475,13 +470,28 @@ Pelabelan target luaran dieksekusi secara terstruktur melalui dua fungsi determi
 
 #### Matriks Keputusan Penentuan Mutu (`label_grade`):
 
-$$\text{Grade} = \begin{cases}  \text{GRADE\_A}, & \text{jika } \text{alcohol\_test} = \text{NEGATIF} \land pH \ge 6.6 \\  \text{GRADE\_B}, & \text{jika } \text{alcohol\_test} = \text{SERPIHAN\_HALUS} \lor (6.4 \le pH < 6.6) \\  \text{GRADE\_C}, & \text{jika } \text{alcohol\_test} = \text{PECAH\_PADAT} \lor pH < 6.3  \end{cases}$$
+```
+if alcohol_test == "NEGATIF":
+  grade = "GRADE_A"
+elif alcohol_test == "SERPIHAN_HALUS":
+  grade = "GRADE_B"
+else:  # alcohol_test == "PECAH_PADAT":
+  grade = "GRADE_C"
+```
 
 #### Formula Hitung Mundur Sisa Waktu (`label_shelf_life_min`):
 
 Berdasarkan pencatatan waktu faktual pecah ($T_{rusak}$) pada wadah terkait:
 
-$$\text{label\_shelf\_life\_min}(t) = \max\Big(0, \ T_{rusak} - t\Big)$$
+```
+# Perhitungan sisa waktu simpan (menit) per baris data
+label_shelf_life_min = max(0, t_rusak - elapsed_min)
+
+# Implementasi batch pada Pandas DataFrame
+df["label_shelf_life_min"] = (t_rusak - df["elapsed_min"]).clip(
+    lower=0
+)
+```
 
 * Contoh pada Wadah Ruang ($T_{rusak} = 240\text{ menit}$): Pada $t = 60$, nilai label adalah $240 - 60 = 180\text{ menit}$. Pada $t = 240$, nilai menyentuh $0\text{ menit}$, dan untuk $t > 240$, nilai dikunci konstan pada $0\text{ menit}$.
 
