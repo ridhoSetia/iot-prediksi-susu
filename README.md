@@ -31,16 +31,16 @@ Sistem ini dirancang sebagai instrumen cerdas genggam (*Smart Handheld Milk Qual
 |                                  VALUE PROPOSITION ARSITEKTUR                                     |
 +------------------------------+--------------------------------------------------------------------+
 | On-Device Processing         | Inferensi TinyML INT8 di ESP32-S3 < 10 ms; zero-dependency         |
-|                              | terhadap cloud/internet saat pengambilan keputusan di kandang[cite: 1, 2].|
+|                              | terhadap cloud/internet saat pengambilan keputusan di kandang      |
 +------------------------------+--------------------------------------------------------------------+
 | Predictive Countdown         | Estimasi sisa jendela waktu simpan (Estimated Shelf-Life Window)   |
-|                              | dalam satuan menit secara dinamis terhadap dinamika termal[cite: 1, 2].     |
+|                              | dalam satuan menit secara dinamis terhadap dinamika termal         |
 +------------------------------+--------------------------------------------------------------------+
 | Non-Destructive & Reagentless| Pengujian biofisika murni (< 3 detik); mengeliminasi ketergantungan|
-|                              | terhadap alkohol 70% dan bahan kimia laboratorium[cite: 1, 2].             |
+|                              | terhadap alkohol 70% dan bahan kimia laboratorium                  |
 +------------------------------+--------------------------------------------------------------------+
 | Offline-First Architecture   | Pencatatan log terstempel waktu lokal di MicroSD; auto-sync        |
-|                              | asinkron ke cloud KUD begitu mendeteksi jaringan Wi-Fi[cite: 1, 2].       |
+|                              | asinkron ke cloud KUD begitu mendeteksi jaringan Wi-Fi             |
 +------------------------------+--------------------------------------------------------------------+
 
 ```
@@ -250,14 +250,14 @@ Pelatihan model prediktif multivariat memerlukan dataset runtun waktu yang memet
 +------------------+----------------+---------------------------------------------------------------+
 | Wadah Dingin     | 10°C – 15°C    | Simulasi penggunaan cooler box es peternak. Laju pembelahan   |
 | (S_DINGIN)       | (Cooler Box)   | bakteri tertekan dalam lag phase panjang. Memasok data Grade A|
-|                  |                | stabil dan bertindak sebagai negative control (censored data)[cite: 1].|
+|                  |                | stabil dan bertindak sebagai negative control (censored data).|
 +------------------+----------------+---------------------------------------------------------------+
 | Wadah Ruang      | 25°C – 30°C    | Kondisi riil kandang/pos KUD tropis. Bakteri aktif membelah   |
-| (S_RUANG)        | (Ambient)      | pada jam ke-2 hingga ke-4; kurva baseline degradasi normal[cite: 1, 2].|
+| (S_RUANG)        | (Ambient)      | pada jam ke-2 hingga ke-4; kurva baseline degradasi normal|
 +------------------+----------------+---------------------------------------------------------------+
 | Wadah Hangat     | 35°C – 38°C    | Accelerated shelf-life testing (pembusukan dipercepat akibat  |
 | (S_HANGAT)       | (Water Bath)   | paparan terik matahari bak pengangkut terbuka). Kerusakan masif|
-|                  |                | terjadi dalam 1.5 – 2.5 jam[cite: 1].                                 |
+|                  |                | terjadi dalam 1.5 – 2.5 jam.                                 |
 +------------------+----------------+---------------------------------------------------------------+
 
 ```
@@ -355,17 +355,17 @@ Berkas pencatatan gabungan dari MicroSD ESP32-S3 dan log pengujian manual labora
 +---------------------+---------+-------------------+-----------------------------------------------+
 | Nama Kolom          | Tipe    | Kategori Pipeline | Definisi & Penjelasan Teknis                  |
 +---------------------+---------+-------------------+-----------------------------------------------+
-| sample_id           | String  | Metadata (Drop)   | Identitas wadah: 'S_RUANG', 'S_DINGIN', dll[cite: 1].|
-| timestamp           | Int64   | Metadata (Drop)   | Unix epoch time (detik) saat pengujian[cite: 1, 2].   |
-| elapsed_min         | Int32   | Temporal Operator | Menit relatif sejak awal perah (penyebut Δt)[cite: 1].|
-| burst_idx           | Int8    | Metadata (Drop)   | Indeks urutan sampling burst (1 sampai 5)[cite: 1].    |
-| temp_c              | Float32 | Feature Input (X) | Temperatur aktual susu (°C) dari PT100[cite: 1, 2].  |
-| r_liquid            | Float32 | Sensor Mentah(Drop| Hambatan analog cairan mentah (Ohm)[cite: 1, 2].     |
+| sample_id           | String  | Metadata (Drop)   | Identitas wadah: 'S_RUANG', 'S_DINGIN', dll.|
+| timestamp           | Int64   | Metadata (Drop)   | Unix epoch time (detik) saat pengujian   |
+| elapsed_min         | Int32   | Temporal Operator | Menit relatif sejak awal perah (penyebut Δt).|
+| burst_idx           | Int8    | Metadata (Drop)   | Indeks urutan sampling burst (1 sampai 5).    |
+| temp_c              | Float32 | Feature Input (X) | Temperatur aktual susu (°C) dari PT100  |
+| r_liquid            | Float32 | Sensor Mentah(Drop| Hambatan analog cairan mentah (Ohm)     |
 | ec_25               | Float32 | Feature Input (X) | Konduktivitas cairan suhu standar 25°C (mS/cm)|
-| ph_actual           | Float32 | Ground Truth(Drop)| pH objektif dari instrumen pH meter digital[cite: 1].|
-| alcohol_test        | String  | Ground Truth(Drop)| Hasil uji alkohol: NEGATIF, dll[cite: 1].    |
-| label_grade         | String  | Target Output (y1)| Kelas mutu biologis (GRADE_A, B, C)[cite: 1, 2].     |
-| label_shelf_life_min| Float32 | Target Output (y2)| Hitung mundur sisa waktu aman (menit)[cite: 1, 2].   |
+| ph_actual           | Float32 | Ground Truth(Drop)| pH objektif dari instrumen pH meter digital.|
+| alcohol_test        | String  | Ground Truth(Drop)| Hasil uji alkohol: NEGATIF, dll.    |
+| label_grade         | String  | Target Output (y1)| Kelas mutu biologis (GRADE_A, B, C)     |
+| label_shelf_life_min| Float32 | Target Output (y2)| Hitung mundur sisa waktu aman (menit)   |
 +---------------------+---------+-------------------+-----------------------------------------------+
 
 ```
@@ -417,7 +417,7 @@ import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 
 # 1. Load dataset eksperimen lab
-df_raw = pd.read_csv("dataset_susu_mentah.csv")  #[cite: 1]
+df_raw = pd.read_csv("dataset_susu_mentah.csv")  #
 
 # 2. Agregasi burst sampling (mereduksi 5 baris burst menjadi 1 baris rata-rata stabil)
 df_grouped = (
@@ -431,41 +431,41 @@ df_grouped = (
         }
     )
     .reset_index()
-)  #[cite: 1]
+)  #
 
 # 3. Urutkan berdasarkan wadah dan linimasa waktu
 df_grouped = df_grouped.sort_values(
     by=["sample_id", "elapsed_min"]
-).reset_index(drop=True)  #[cite: 1]
+).reset_index(drop=True)  #
 
 # 4. Kalkulasi Delta EC / Delta t (Kinetika Ionik)
 # Menghitung selisih pembacaan terhadap sesi 10 menit sebelumnya per grup wadah
-delta_ec = df_grouped.groupby("sample_id")["ec_25"].diff()  #[cite: 1]
-delta_t = df_grouped.groupby("sample_id")["elapsed_min"].diff()  #[cite: 1]
+delta_ec = df_grouped.groupby("sample_id")["ec_25"].diff()  #
+delta_t = df_grouped.groupby("sample_id")["elapsed_min"].diff()  #
 
-df_grouped["delta_ec_rate"] = delta_ec / delta_t  #[cite: 1]
+df_grouped["delta_ec_rate"] = delta_ec / delta_t  #
 # Imputasi t0 (menit ke-0) dengan 0.0 karena belum terjadi perubahan kinetika
 df_grouped["delta_ec_rate"] = df_grouped["delta_ec_rate"].fillna(
     0.0
-)  #[cite: 1]
+)  #
 
 # 5. Ekstraksi Matriks Fitur (X) dan Target (y)
-feature_cols = ["temp_c", "ec_25", "delta_ec_rate"]  #[cite: 1]
-X = df_grouped[feature_cols].values  #[cite: 1]
+feature_cols = ["temp_c", "ec_25", "delta_ec_rate"]  #
+X = df_grouped[feature_cols].values  #
 
 # Normalisasi Min-Max Scaler ke rentang [0.0, 1.0]
-scaler = MinMaxScaler()  #[cite: 1]
-X_scaled = scaler.fit_transform(X)  #[cite: 1]
+scaler = MinMaxScaler()  #
+X_scaled = scaler.fit_transform(X)  #
 
 # Target 1: One-Hot Encoding Klasifikasi Mutu (Grade A, B, C)
 y_grade = pd.get_dummies(df_grouped["label_grade"])[
     ["GRADE_A", "GRADE_B", "GRADE_C"]
-].values  #[cite: 1]
+].values  #
 
 # Target 2: Regresi Sisa Waktu Simpan (Menit)
 y_shelf_life = df_grouped["label_shelf_life_min"].values.astype(
     np.float32
-)  #[cite: 1]
+)  #
 
 ```
 
@@ -502,15 +502,15 @@ Sistem mengadopsi arsitektur **Multi-Task Multi-Layer Perceptron (MLP)**.
 | Parameter          | Klasik (Random Forest) | Deep Learning (LSTM)   | Multi-Task MLP (Dipilih)   |
 +--------------------+------------------------+------------------------+----------------------------+
 | Footprint Memori   | Sedang (Pohon if-else  | Berat (>200 KB Flash), | Sangat Ringan (<15 KB INT8)|
-| SRAM ESP32-S3      | butuh banyak node code)| boros alokasi SRAM[cite: 1].| aman dalam SRAM 512KB[cite: 1].   |
+| SRAM ESP32-S3      | butuh banyak node code)| boros alokasi SRAM.| aman dalam SRAM 512KB.   |
 +--------------------+------------------------+------------------------+----------------------------+
 | Multi-Task Output  | Tidak Mendukung        | Mendukung              | Sangat Optimal             |
-| Eksekusi           | (Wajib deploy 2 model) | (Terlalu berlebihan)   | (1 Backbone, 2 Heads)[cite: 1].   |
+| Eksekusi           | (Wajib deploy 2 model) | (Terlalu berlebihan)   | (1 Backbone, 2 Heads).   |
 +--------------------+------------------------+------------------------+----------------------------+
 | Native INT8 Support| Terbatas/Perlu Parser  | Kompleks (Operasi      | Terintegrasi penuh pada    |
-| TFLite Micro       | C manual               | Recurrent Gate)        | TFLite Micro via ESP-NN[cite: 1]. |
+| TFLite Micro       | C manual               | Recurrent Gate)        | TFLite Micro via ESP-NN. |
 +--------------------+------------------------+------------------------+----------------------------+
-| Latensi Inferensi  | ~15 ms                 | >120 ms                | < 5 ms (Instruksi Vektor)[cite: 1]|
+| Latensi Inferensi  | ~15 ms                 | >120 ms                | < 5 ms (Instruksi Vektor)|
 +--------------------+------------------------+------------------------+----------------------------+
 
 ```
@@ -547,52 +547,52 @@ Script implementasi model menggunakan TensorFlow/Keras Functional API:
 
 ```python
 import tensorflow as tf
-from tensorflow.keras import layers, Model  #[cite: 3, 24]
+from tensorflow.keras import layers, Model
 
 # 1. Definisi Input Layer
 inputs = layers.Input(
     shape=(3,), name="sensor_features"
-)  # [temp_c, ec_25, delta_ec_rate][cite: 1, 8]
+)  # [temp_c, ec_25, delta_ec_rate]
 
 # 2. Shared Backbone
 x = layers.Dense(16, activation="relu", name="shared_dense_1")(
     inputs
-)  #[cite: 1, 8]
-x = layers.Dense(8, activation="relu", name="shared_dense_2")(x)  #[cite: 1, 8]
+)  
+x = layers.Dense(8, activation="relu", name="shared_dense_2")(x)  
 
 # 3. Branching Heads
 out_classification = layers.Dense(3, activation="softmax", name="grade_output")(
     x
-)  #[cite: 1, 8]
+)  
 out_regression = layers.Dense(1, activation="linear", name="shelf_life_output")(
     x
-)  #[cite: 1, 8]
+)  
 
 # 4. Instansiasi Model
 model = Model(
     inputs=inputs,
     outputs=[out_classification, out_regression],
     name="MilkQualityMultiTaskMLP",
-)  #[cite: 1, 3]
+) 
 
 # 5. Kompilasi Model dengan Multi-Loss Weighting
 model.compile(
-    optimizer=tf.keras.optimizers.Adam(learning_rate=0.005),  #[cite: 1, 3]
+    optimizer=tf.keras.optimizers.Adam(learning_rate=0.005), 
     loss={
-        "grade_output": "categorical_crossentropy",  #[cite: 1, 3]
-        "shelf_life_output": "mean_squared_error",  #[cite: 1, 3]
+        "grade_output": "categorical_crossentropy", 
+        "shelf_life_output": "mean_squared_error", 
     },
     loss_weights={
         "grade_output": 1.0,  # Bobot prioritas klasifikasi
         "shelf_life_output": 0.01,  # Normalisasi magnitudo MSE menit
     },
     metrics={
-        "grade_output": ["accuracy"],  #[cite: 10, 18]
-        "shelf_life_output": ["mae"],  #[cite: 1, 3]
+        "grade_output": ["accuracy"],
+        "shelf_life_output": ["mae"], 
     },
 )
 
-model.summary()  #[cite: 14]
+model.summary()
 
 ```
 
@@ -617,16 +617,16 @@ def representative_data_gen():
     yield [X_scaled[i : i + 1].astype(np.float32)]
 
 
-converter = tf.lite.TFLiteConverter.from_keras_model(model)  #[cite: 1]
-converter.optimizations = [tf.lite.Optimize.DEFAULT]  #[cite: 1]
-converter.representative_dataset = representative_data_gen  #[cite: 1]
+converter = tf.lite.TFLiteConverter.from_keras_model(model)  #
+converter.optimizations = [tf.lite.Optimize.DEFAULT]  #
+converter.representative_dataset = representative_data_gen  #
 
 # Memastikan operasi komputasi dikunci penuh ke format Integer murni
 converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
 converter.inference_input_type = tf.int8
 converter.inference_output_type = tf.int8
 
-tflite_quant_model = converter.convert()  #[cite: 1]
+tflite_quant_model = converter.convert()  #
 
 # Simpan ke format biner .tflite
 with open("milk_quality_model_int8.tflite", "wb") as f:
