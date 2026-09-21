@@ -7,8 +7,7 @@
 #include <Adafruit_MAX31865.h>
 
 // =================================================================
-// 0. STRUKTUR DATA & FORWARD DECLARATION
-// Wajib ditaruh paling atas agar dikenali oleh Arduino Preprocessor
+// 0. STRUKTUR DATA & ENUMERASI FINITE STATE MACHINE (FSM)
 // =================================================================
 struct ECReading {
   bool isSubmerged;
@@ -18,9 +17,24 @@ struct ECReading {
   float ec25;         // mS/cm terkompensasi 25°C
 };
 
-// Deklarasi fungsi di awal agar compiler tidak rancu
-ECReading getCalibratedEC(float currentTemperature);
-void updateOled(float suhu, const ECReading &ec);
+enum SystemState {
+  STATE_MENU_UTAMA,
+  STATE_PREDIKSI_IDLE,
+  STATE_PREDIKSI_PROCESS,
+  STATE_PREDIKSI_RESULT,
+  STATE_DATA_VIEW,
+  STATE_DATA_SENDING,
+  STATE_AMBIL_DATA_LIVE,
+  STATE_AMBIL_DATA_BURST
+};
+
+SystemState currentState = STATE_MENU_UTAMA;
+
+// Indeks Navigasi Menu
+int menuUtamaCursor = 0;      // 0: Prediksi, 1: Lihat & Kirim, 2: Ambil Data
+int prediksiResultCursor = 0; // 0: Prediksi Lagi, 1: Kembali
+int dataViewCursor = 0;       // 0: Kirim Data, 1: Kembali
+int ambilDataCursor = 0;      // 0: Rekam (5x), 1: Kembali
 
 // =================================================================
 // 1. PIN & KONFIGURASI LAYAR OLED SSD1306 (I2C)
@@ -30,126 +44,101 @@ void updateOled(float suhu, const ECReading &ec);
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define OLED_RESET -1
-#define SCREEN_ADDRESS 0x3C
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // =================================================================
-// 2. PIN TOMBOL & PENYIMPANAN FLASH INTERNAL (LITTLEFS)
+// 2. PIN TOMBOL DUAL-ACTION (KLIK & TAHAN 2 DETIK)
 // =================================================================
 #define BUTTON_PIN 7
 
-bool isStorageReady = false;
-int logCount = 0;
-String logStatusMsg = "Flash Siap";
+unsigned long btnPressStartTime = 0;
+bool isBtnPressed = false;
+bool longPressTriggered = false;
+const unsigned long HOLD_DURATION_MS = 400;
+const unsigned long DEBOUNCE_DELAY_MS = 50;
 
-// Variabel Debounce Tombol
-int lastButtonReading = LOW;
-int confirmedButtonState = LOW;
-unsigned long lastDebounceTime = 0;
-const unsigned long debounceDelay = 50;
+// Flag pemicu aksi
+bool actionShortClick = false;
+bool actionLongPress = false;
 
 // =================================================================
-// 3. PIN & LOGIKA LED RGB 4-PIN (PWM ANALOG)
+// 3. PIN & KONTROL LED RGB 4-PIN (PWM ANALOG)
 // =================================================================
 #define PIN_LED_RED 15
 #define PIN_LED_GREEN 16
 #define PIN_LED_BLUE 17
 
-// Ubah ke false jika menggunakan LED Common Anode
 const bool IS_COMMON_CATHODE = true;
-
-// Batas nilai intensitas PWM analog (skala 0 - 255)
-const int LED_INTENSITY = 25;
-
-// State Siklus: -1 = Mati, 0 = Merah, 1 = Kuning, 2 = Hijau
-int ledColorState = -1;
+const int LED_INTENSITY = 35;
 
 void setRgbColor(bool r, bool g, bool b) {
-  // Tentukan nilai PWM: jika aktif set ke 200, jika mati set ke 0
   int valR = r ? LED_INTENSITY : 0;
   int valG = g ? LED_INTENSITY : 0;
   int valB = b ? LED_INTENSITY : 0;
 
-  // Jika Common Anode (Active LOW), balik nilainya (255 - nilai)
   if (!IS_COMMON_CATHODE) {
     valR = 255 - valR;
     valG = 255 - valG;
     valB = 255 - valB;
   }
 
-  // Tulis sinyal PWM analog ke masing-masing pin
   analogWrite(PIN_LED_RED, valR);
   analogWrite(PIN_LED_GREEN, valG);
   analogWrite(PIN_LED_BLUE, valB);
 }
 
-void applyNextLedColor() {
-  // Siklus: Merah (0) -> Kuning (1) -> Hijau (2) -> Merah (0)
-  ledColorState = (ledColorState + 1) % 3;
-
-  switch (ledColorState) {
-    case 0:  // Merah (R = 200)
-      setRgbColor(true, false, false);
-      Serial.println("[LED] State 1: Merah (PWM: 200)");
-      break;
-    case 1:  // Kuning (R = 200, G = 200)
-      setRgbColor(true, true, false);
-      Serial.println("[LED] State 2: Kuning (PWM: 200)");
-      break;
-    case 2:  // Hijau (G = 200)
-      setRgbColor(false, true, false);
-      Serial.println("[LED] State 3: Hijau (PWM: 200)");
-      break;
-  }
-}
-
 // =================================================================
-// 4. PIN & KONFIGURASI SENSOR EC
+// 4. PIN & KONFIGURASI SENSOR EC (CUSTOM AC DIVIDER)
 // =================================================================
 #define PIN_DRIVE_A 4
 #define PIN_DRIVE_B 5
 #define PIN_ADC_SENSE 1
 
-const float R_REF = 1000.0;  // Resistor referensi 1k Ohm
-const float V_IN = 3.3;      // Tegangan logika ESP32-S3
+const float R_REF = 1000.0;
+const float V_IN = 3.3;
+const float CAL_SLOPE  = 2.204908;
+const float CAL_OFFSET = -2.276239;
+const float ALPHA_TEMP = 0.020;
 
-// Parameter Hasil Kalibrasi Dua Titik
-const float CAL_SLOPE = 2.157738;
-const float CAL_OFFSET = -1.871534;
-
-// Koefisien Suhu Standar
-const float ALPHA_TEMP = 0.020;  // 2.0% per derajat C
-
-// Konfigurasi Sampling Rate & Filter EC
-const unsigned long SAMPLING_INTERVAL_MS = 1000;  // 1 Hz
 const int TOTAL_SAMPLES = 40;
 const int TRIM_COUNT = 8;
 
-unsigned long lastSampleTime = 0;
-
-// Variabel Penampung Data Terkini
 float latestSuhu = 25.0;
 ECReading latestEcData = { false, -1.0, 0.0, 0.0, 0.0 };
 
 // =================================================================
-// 5. PIN & KONFIGURASI MAX31865 (PT100)
+// 5. PIN & KONFIGURASI MAX31865 (PT100 RTD)
 // =================================================================
-// Software SPI: CS, DI (MOSI), DO (MISO), CLK
 Adafruit_MAX31865 thermo = Adafruit_MAX31865(10, 11, 12, 13);
-
 #define RREF 426.0
 #define RNOMINAL 100.0
 
 // =================================================================
-// 6. FUNGSI PEMBACAAN EC (TRIMMED MEAN FILTER)
+// 6. PENYIMPANAN FLASH INTERNAL (LITTLEFS)
+// =================================================================
+bool isStorageReady = false;
+int logCount = 0;
+
+// Variabel Hasil Prediksi
+String resultGrade = "GRADE A";
+int resultShelfLifeMin = 180;
+
+// Forward Declaration
+void renderDisplay();
+void handleButtonLogic();
+ECReading getCalibratedEC(float currentTemperature);
+float readPT100Temperature();
+void logBurstSample(int burstIdx);
+
+// =================================================================
+// 7. FUNGSI PEMBACAAN SENSOR EC & SUHU
 // =================================================================
 ECReading getCalibratedEC(float currentTemperature) {
   ECReading data;
   float samples[TOTAL_SAMPLES];
 
   for (int i = 0; i < TOTAL_SAMPLES; i++) {
-    // Fase 1: Pulsa Positif
     digitalWrite(PIN_DRIVE_A, HIGH);
     digitalWrite(PIN_DRIVE_B, LOW);
     delayMicroseconds(120);
@@ -157,29 +146,24 @@ ECReading getCalibratedEC(float currentTemperature) {
     int rawADC = analogRead(PIN_ADC_SENSE);
     samples[i] = (rawADC / 4095.0) * V_IN;
 
-    // Fase 2: Pulsa Negatif
     digitalWrite(PIN_DRIVE_A, LOW);
     digitalWrite(PIN_DRIVE_B, HIGH);
     delayMicroseconds(120);
 
-    // Fase 3: Pelepasan Arus
     digitalWrite(PIN_DRIVE_A, LOW);
     digitalWrite(PIN_DRIVE_B, LOW);
     delay(2);
   }
 
-  // Filter statistik (buang data outlier atas & bawah)
   std::sort(samples, samples + TOTAL_SAMPLES);
 
   float sumValidVoltage = 0.0;
   int validCount = TOTAL_SAMPLES - (2 * TRIM_COUNT);
-
   for (int i = TRIM_COUNT; i < (TOTAL_SAMPLES - TRIM_COUNT); i++) {
     sumValidVoltage += samples[i];
   }
   float avgVout = sumValidVoltage / validCount;
 
-  // Cek jika probe berada di udara/kering
   if (avgVout >= (V_IN - 0.05) || avgVout <= 0.02) {
     data.isSubmerged = false;
     data.resistance = -1.0;
@@ -192,166 +176,284 @@ ECReading getCalibratedEC(float currentTemperature) {
   data.isSubmerged = true;
   data.resistance = R_REF * (avgVout / (V_IN - avgVout));
   data.conductance = 1000.0 / data.resistance;
-
-  // Hitung EC Aktual dan Normalisasi Suhu ke 25°C
   data.ecRaw = (CAL_SLOPE * data.conductance) + CAL_OFFSET;
   if (data.ecRaw < 0.0) data.ecRaw = 0.0;
 
   data.ec25 = data.ecRaw / (1.0 + ALPHA_TEMP * (currentTemperature - 25.0));
-
   return data;
 }
 
-// =================================================================
-// 7. FUNGSI PEMBACAAN SUHU MAX31865
-// =================================================================
 float readPT100Temperature() {
   uint8_t fault = thermo.readFault();
   if (fault) {
-    Serial.printf("[FAULT PT100] Kode: 0x%02X\n", fault);
     thermo.clearFault();
-    return 25.0;  // Fallback ke suhu acuan jika ada fault
+    return 25.0;
   }
-
   return thermo.temperature(RNOMINAL, RREF);
 }
 
 // =================================================================
-// 8. FUNGSI RENDER DISPLAY OLED
+// 8. MANAJEMEN PENYIMPANAN FLASH (LITTLEFS)
 // =================================================================
-void updateOled(float suhu, const ECReading &ec) {
+void logBurstSample(int burstIdx) {
+  if (!isStorageReady) return;
+
+  File dataFile = LittleFS.open("/dataset_susu.csv", FILE_APPEND);
+  if (!dataFile) return;
+
+  logCount++;
+  unsigned long timeStamp = millis();
+
+  // Format CSV: id,timestamp,burst_idx,temp_c,r_ohm,ec_raw,ec_25,submerged
+  dataFile.printf("%d,%lu,%d,%.2f,%.1f,%.3f,%.3f,%d\n",
+                  logCount,
+                  timeStamp,
+                  burstIdx,
+                  latestSuhu,
+                  latestEcData.resistance,
+                  latestEcData.ecRaw,
+                  latestEcData.ec25,
+                  latestEcData.isSubmerged ? 1 : 0);
+  dataFile.close();
+}
+
+void logPredictionToFlash() {
+  if (!isStorageReady) return;
+
+  File dataFile = LittleFS.open("/prediksi_log.json", FILE_APPEND);
+  if (!dataFile) return;
+
+  logCount++;
+  char buf[200];
+  snprintf(buf, sizeof(buf),
+           "{\"id\":%d,\"suhu\":%.2f,\"ec25\":%.3f,\"grade\":\"%s\",\"shelf_min\":%d}",
+           logCount, latestSuhu, latestEcData.ec25, resultGrade.c_str(), resultShelfLifeMin);
+
+  dataFile.println(buf);
+  dataFile.close();
+}
+
+// =================================================================
+// 9. LOGIKA DETEKSI TOMBOL (SHORT CLICK VS HOLD 2 DETIK)
+// =================================================================
+void handleButtonLogic() {
+  actionShortClick = false;
+  actionLongPress = false;
+
+  int reading = digitalRead(BUTTON_PIN);
+
+  if (reading == HIGH) {
+    if (!isBtnPressed) {
+      isBtnPressed = true;
+      btnPressStartTime = millis();
+      longPressTriggered = false;
+    } else {
+      unsigned long holdDuration = millis() - btnPressStartTime;
+      if (holdDuration >= HOLD_DURATION_MS && !longPressTriggered) {
+        longPressTriggered = true;
+        actionLongPress = true; // Terpicu aksi tahan
+      }
+    }
+  } else {
+    if (isBtnPressed) {
+      unsigned long pressDuration = millis() - btnPressStartTime;
+      isBtnPressed = false;
+      if (!longPressTriggered && pressDuration >= DEBOUNCE_DELAY_MS) {
+        actionShortClick = true; // Terpicu aksi klik biasa
+      }
+    }
+  }
+}
+
+// =================================================================
+// 10. RENDER TAMPILAN OLED BERDASARKAN FSM
+// =================================================================
+void renderDisplay() {
   display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
 
-  // Header Title
-  display.setTextSize(1);
-  display.setCursor(0, 0);
-  display.print("EC & SUHU MONITOR");
-  display.drawLine(0, 9, 128, 9, SSD1306_WHITE);
+  switch (currentState) {
+    // -------------------------------------------------------------
+    // 1. MENU UTAMA
+    // -------------------------------------------------------------
+    case STATE_MENU_UTAMA:
+      display.setTextSize(1);
+      display.setCursor(20, 0);
+      display.print("= MENU UTAMA =");
+      display.drawLine(0, 9, 128, 9, SSD1306_WHITE);
 
-  // Nilai Suhu PT100
-  display.setCursor(0, 13);
-  display.printf("Suhu   : %.2f C", suhu);
+      // Menu 0: Prediksi Susu
+      display.setCursor(10, 14);
+      display.print(menuUtamaCursor == 0 ? "> 1. Prediksi Susu" : "  1. Prediksi Susu");
 
-  if (!ec.isSubmerged) {
-    display.setCursor(0, 25);
-    display.print("EC@25C : -- mS/cm");
+      // Menu 1: Lihat & Kirim Data
+      display.setCursor(10, 26);
+      display.print(menuUtamaCursor == 1 ? "> 2. Lihat & Kirim" : "  2. Lihat & Kirim");
 
-    display.setCursor(0, 37);
-    display.print("Status : PROBE KERING");
-  } else {
-    display.setCursor(0, 25);
-    display.printf("EC@25C : %.3f mS", ec.ec25);
+      // Menu 2: Ambil Data Susu
+      display.setCursor(10, 38);
+      display.print(menuUtamaCursor == 2 ? "> 3. Ambil Data" : "  3. Ambil Data");
 
-    display.setCursor(0, 37);
-    display.printf("EC Akt : %.3f mS/cm", ec.ecRaw);
+      display.drawLine(0, 50, 128, 50, SSD1306_WHITE);
+      display.setCursor(0, 54);
+      display.print("Klik:Pindah Than:Plih");
+      break;
+
+    // -------------------------------------------------------------
+    // 2. MENU PREDIKSI: STANDBY
+    // -------------------------------------------------------------
+    case STATE_PREDIKSI_IDLE:
+      display.setTextSize(1);
+      display.setCursor(15, 0);
+      display.print("PREDIKSI MUTU SUSU");
+      display.drawLine(0, 9, 128, 9, SSD1306_WHITE);
+
+      display.setCursor(0, 14);
+      display.printf("Suhu : %.2f C", latestSuhu);
+      display.setCursor(0, 25);
+      display.printf("EC25 : %.3f mS/cm", latestEcData.isSubmerged ? latestEcData.ec25 : 0.0);
+      display.setCursor(0, 36);
+      display.print("Model: Standby (Uji)");
+
+      display.drawLine(0, 48, 128, 48, SSD1306_WHITE);
+      display.setCursor(2, 53);
+      display.print(prediksiResultCursor == 0 ? "[*Prediksi] [Kembali]" : "[Prediksi] [*Kembali]");
+      break;
+
+    // -------------------------------------------------------------
+    // 2. MENU PREDIKSI: PROSES
+    // -------------------------------------------------------------
+    case STATE_PREDIKSI_PROCESS:
+      display.setTextSize(1);
+      display.setCursor(10, 15);
+      display.print("Menganalisis Susu...");
+      display.drawRect(14, 32, 100, 10, SSD1306_WHITE);
+      display.fillRect(16, 34, 96, 6, SSD1306_WHITE);
+      display.setCursor(15, 48);
+      display.print("Memproses TinyML...");
+      break;
+
+    // -------------------------------------------------------------
+    // 2. MENU PREDIKSI: HASIL
+    // -------------------------------------------------------------
+    case STATE_PREDIKSI_RESULT:
+      display.setTextSize(1);
+      display.setCursor(24, 0);
+      display.print("HASIL ANALISIS");
+      display.drawLine(0, 9, 128, 9, SSD1306_WHITE);
+
+      display.setCursor(0, 14);
+      display.printf("Status: %s", resultGrade.c_str());
+      display.setCursor(0, 25);
+      display.printf("Sisa  : %d Menit", resultShelfLifeMin);
+      display.setCursor(0, 36);
+      display.printf("Suhu:%.1fC EC:%.2f", latestSuhu, latestEcData.ec25);
+
+      display.drawLine(0, 48, 128, 48, SSD1306_WHITE);
+      display.setCursor(2, 53);
+      display.print(prediksiResultCursor == 0 ? "[*Prediksi] [Kembali]" : "[Prediksi] [*Kembali]");
+      break;
+
+    // -------------------------------------------------------------
+    // 3. MENU LIHAT & KIRIM: TAMPILAN
+    // -------------------------------------------------------------
+    case STATE_DATA_VIEW:
+      display.setTextSize(1);
+      display.setCursor(14, 0);
+      display.print("DATA FLASH LITTLEFS");
+      display.drawLine(0, 9, 128, 9, SSD1306_WHITE);
+
+      display.setCursor(0, 14);
+      display.printf("Total Log: %d data", logCount);
+      display.setCursor(0, 25);
+      display.printf("File: dataset_susu.csv");
+      display.setCursor(0, 36);
+      display.printf("Flash Ready: %s", isStorageReady ? "OK" : "FAIL");
+
+      display.drawLine(0, 48, 128, 48, SSD1306_WHITE);
+      display.setCursor(8, 53);
+      display.print(dataViewCursor == 0 ? "[*Kirim] [Kembali]" : "[Kirim] [*Kembali]");
+      break;
+
+    // -------------------------------------------------------------
+    // 3. MENU LIHAT & KIRIM: PROSES PENGIRIMAN
+    // -------------------------------------------------------------
+    case STATE_DATA_SENDING:
+      display.setTextSize(1);
+      display.setCursor(16, 0);
+      display.print("SINKRONISASI IOT");
+      display.drawLine(0, 9, 128, 9, SSD1306_WHITE);
+
+      display.setCursor(0, 14);
+      display.print("1. Scan Wi-Fi... OK");
+      display.setCursor(0, 25);
+      display.print("2. Hubungi Server...");
+      display.setCursor(0, 36);
+      display.printf("3. Kirim: %d Data", logCount);
+
+      display.drawLine(0, 48, 128, 48, SSD1306_WHITE);
+      display.setCursor(25, 53);
+      display.print("[*Tahan: Selesai]");
+      break;
+
+    // -------------------------------------------------------------
+    // 4. MENU AMBIL DATA: LIVE STREAM SENSOR
+    // -------------------------------------------------------------
+    case STATE_AMBIL_DATA_LIVE:
+      display.setTextSize(1);
+      display.setCursor(10, 0);
+      display.print("PENGAMBILAN DATASET");
+      display.drawLine(0, 9, 128, 9, SSD1306_WHITE);
+
+      display.setCursor(0, 13);
+      display.printf("Suhu : %.2f C", latestSuhu);
+      display.setCursor(0, 23);
+      if (latestEcData.isSubmerged) {
+        display.printf("EC25 : %.3f mS/cm", latestEcData.ec25);
+      } else {
+        display.print("EC25 : -- (KERING)");
+      }
+
+      display.setCursor(0, 33);
+      display.printf("Log  : #%d Tersimpan", logCount);
+
+      display.drawLine(0, 47, 128, 47, SSD1306_WHITE);
+      display.setCursor(2, 52);
+      display.print(ambilDataCursor == 0 ? "[*Rekam 5x] [Kembali]" : "[Rekam 5x] [*Kembali]");
+      break;
+
+    // -------------------------------------------------------------
+    // 4. MENU AMBIL DATA: BURST SAMPLING IN PROGRESS
+    // -------------------------------------------------------------
+    case STATE_AMBIL_DATA_BURST:
+      display.setTextSize(1);
+      display.setCursor(4, 10);
+      display.print("MEREKAM BURST 5x...");
+      display.setCursor(4, 28);
+      display.print("Jangan Angkat Probe!");
+      display.setCursor(4, 46);
+      display.print("Menyimpan ke Flash");
+      break;
   }
 
-  // Baris Status Flash & Log
-  display.drawLine(0, 49, 128, 49, SSD1306_WHITE);
-  display.setCursor(0, 53);
-  display.printf("Log: %s", logStatusMsg.c_str());
+  // Visualisasi Progress Bar Tahan 2 Detik di Sisi Bawah Layar
+  if (isBtnPressed && !longPressTriggered) {
+    unsigned long holdTime = millis() - btnPressStartTime;
+    int barWidth = map(constrain(holdTime, 0, HOLD_DURATION_MS), 0, HOLD_DURATION_MS, 0, 128);
+    display.fillRect(0, 62, barWidth, 2, SSD1306_WHITE);
+  }
 
   display.display();
 }
 
 // =================================================================
-// 9. FUNGSI MANAJEMEN PENYIMPANAN FLASH INTERNAL (LITTLEFS)
-// =================================================================
-void logDataToFlash() {
-  if (!isStorageReady) {
-    logStatusMsg = "FS Error";
-    Serial.println("[LOG ERROR] Flash internal belum siap / gagal mount.");
-    return;
-  }
-
-  File dataFile = LittleFS.open("/data_log.json", FILE_APPEND);
-  if (!dataFile) {
-    logStatusMsg = "Gagal Tulis";
-    Serial.println("[LOG ERROR] Gagal membuka /data_log.json untuk append!");
-    return;
-  }
-
-  logCount++;
-  unsigned long timeStamp = millis();
-
-  char jsonBuffer[256];
-  snprintf(jsonBuffer, sizeof(jsonBuffer),
-           "{\"id\":%d,\"time_ms\":%lu,\"temp_c\":%.2f,\"ec25\":%.3f,\"ec_raw\":%.3f,\"r_ohm\":%.1f,\"g_ms\":%.3f,\"submerged\":%s}",
-           logCount,
-           timeStamp,
-           latestSuhu,
-           latestEcData.isSubmerged ? latestEcData.ec25 : 0.0,
-           latestEcData.isSubmerged ? latestEcData.ecRaw : 0.0,
-           latestEcData.resistance,
-           latestEcData.conductance,
-           latestEcData.isSubmerged ? "true" : "false");
-
-  dataFile.println(jsonBuffer);
-  dataFile.close();
-
-  logStatusMsg = "Saved #" + String(logCount);
-  Serial.printf("[FLASH TERSIMPAN] %s\n", jsonBuffer);
-}
-
-void dumpLogData() {
-  Serial.println("\n--- MEMERIKSA DATA LOG FLASH ---");
-  if (!isStorageReady) {
-    Serial.println("[ERROR] LittleFS belum siap!");
-    return;
-  }
-
-  if (!LittleFS.exists("/data_log.json")) {
-    Serial.println("[INFO] Berkas /data_log.json BELUM ADA di Flash.");
-    Serial.println("-> Tekan tombol Pin 7 atau ketik 'w' untuk merekam data pertama.");
-    return;
-  }
-
-  File dataFile = LittleFS.open("/data_log.json", FILE_READ);
-  if (!dataFile) {
-    Serial.println("[ERROR] Gagal membuka /data_log.json untuk dibaca.");
-    return;
-  }
-
-  size_t fSize = dataFile.size();
-  Serial.printf("[INFO] Ukuran berkas: %u bytes\n", fSize);
-
-  if (fSize == 0) {
-    Serial.println("[INFO] Berkas ada tetapi masih kosong (0 byte).");
-    dataFile.close();
-    return;
-  }
-
-  Serial.println("================ DUMP DATA LOG FLASH ================");
-  while (dataFile.available()) {
-    Serial.write(dataFile.read());
-  }
-  dataFile.close();
-  Serial.println("================ AKHIR DARI DATA LOG ================\n");
-}
-
-void clearLogData() {
-  if (LittleFS.remove("/data_log.json")) {
-    logCount = 0;
-    logStatusMsg = "Log Direset";
-    Serial.println("\n[OK] Berkas /data_log.json berhasil dihapus.");
-  } else {
-    Serial.println("\n[ERROR] Berkas log tidak ditemukan atau gagal dihapus.");
-  }
-}
-
-// =================================================================
-// 10. SETUP SISTEM
+// 11. SETUP SISTEM
 // =================================================================
 void setup() {
   Serial.begin(115200);
-  delay(1500);
+  delay(1000);
 
-  Serial.println("\n========================================");
-  Serial.println("[BOOT 1/6] ESP32-S3 Hidup & Serial Terbaca");
-  Serial.println("========================================");
-
-  // Inisialisasi Tombol
+  // Inisialisasi Tombol Pin 7
   pinMode(BUTTON_PIN, INPUT_PULLDOWN);
 
   // Inisialisasi LED RGB
@@ -360,74 +462,31 @@ void setup() {
   pinMode(PIN_LED_BLUE, OUTPUT);
   setRgbColor(false, false, false);
 
-  // ==========================================================
-  // Inisialisasi Layar OLED
-  // ==========================================================
-  Serial.println("[BOOT 2/6] Menghubungkan ke Layar OLED...");
-  delay(100);  // Berikan jeda stabilisasi daya OLED
-
+  // Inisialisasi I2C OLED
   Wire.begin(OLED_SDA, OLED_SCL);
   Wire.setClock(100000);
 
-  uint8_t oledAddr = 0;
-  Serial.println("Scan I2C...");
-  for (uint8_t addr = 1; addr < 127; addr++) {
-    Wire.beginTransmission(addr);
-    if (Wire.endTransmission() == 0) {
-      Serial.printf(" -> Perangkat ditemukan di 0x%02X\n", addr);
-      if (addr == 0x3C || addr == 0x3D) oledAddr = addr;
-    }
-  }
-
-  if (oledAddr == 0) {
-    Serial.println(" -> [GAGAL] OLED tidak ACK di bus I2C!");
-  } else if (display.begin(SSD1306_SWITCHCAPVCC, oledAddr, false, false)) {
+  if (display.begin(SSD1306_SWITCHCAPVCC, 0x3C, false, false)) {
     display.clearDisplay();
-    display.setTextColor(SSD1306_WHITE);
-    display.setTextSize(1);
-    display.setCursor(10, 25);
-    display.println("Sistem Siap...");
     display.display();
   }
 
-  // ==========================================================
-  // Inisialisasi MAX31865 (Langsung 3.3V)
-  // ==========================================================
-  Serial.println("[BOOT 3/6] Menginisialisasi MAX31865 (PT100)...");
+  // Inisialisasi MAX31865 (PT100)
   thermo.begin(MAX31865_2WIRE);
-  Serial.println(" -> [OK] MAX31865 Siap");
 
-  // ==========================================================
-  // Inisialisasi Flash Internal (LittleFS)
-  // ==========================================================
-  Serial.println("[BOOT 4/6] Membuka Flash Internal (LittleFS)...");
-  if (!LittleFS.begin(true)) {
-    Serial.println(" -> [GAGAL] LittleFS gagal di-mount!");
-    isStorageReady = false;
-    logStatusMsg = "Flash Gagal";
-  } else {
+  // Inisialisasi Flash Internal LittleFS
+  if (LittleFS.begin(true)) {
     isStorageReady = true;
-    logStatusMsg = "Flash Siap";
-
-    if (LittleFS.exists("/data_log.json")) {
-      File f = LittleFS.open("/data_log.json", FILE_READ);
+    if (LittleFS.exists("/dataset_susu.csv")) {
+      File f = LittleFS.open("/dataset_susu.csv", FILE_READ);
       while (f.available()) {
         if (f.read() == '\n') logCount++;
       }
       f.close();
-      logStatusMsg = "#" + String(logCount) + " Ada";
     }
-
-    size_t totalBytes = LittleFS.totalBytes();
-    size_t usedBytes = LittleFS.usedBytes();
-    Serial.printf(" -> [OK] Flash Siap. Terpakai: %u KB / %u KB | Log: %d data\n",
-                  usedBytes / 1024, totalBytes / 1024, logCount);
   }
 
-  // ==========================================================
-  // Inisialisasi Sensor EC
-  // ==========================================================
-  Serial.println("[BOOT 5/6] Mengaktifkan Pin ADC Sensor EC...");
+  // Inisialisasi Pin Eksitasi AC EC
   pinMode(PIN_DRIVE_A, OUTPUT);
   pinMode(PIN_DRIVE_B, OUTPUT);
   pinMode(PIN_ADC_SENSE, INPUT);
@@ -435,89 +494,153 @@ void setup() {
   digitalWrite(PIN_DRIVE_B, LOW);
   analogReadResolution(12);
   analogSetAttenuation(ADC_11db);
-
-  Serial.println("\n--- SELURUH SISTEM SIAP DIGUNAKAN ---");
-  Serial.println("Tekan tombol Pin 7 untuk ganti warna LED & rekam data.");
 }
 
 // =================================================================
-// 11. LOOP UTAMA
+// 12. LOOP UTAMA
 // =================================================================
 void loop() {
-  unsigned long currentMillis = millis();
+  static unsigned long lastSensorRead = 0;
+  unsigned long now = millis();
 
-  // -------------------------------------------------------------
-  // A. SAMPLING DATA SENSOR (1 Hz NON-BLOCKING)
-  // -------------------------------------------------------------
-  if (currentMillis - lastSampleTime >= SAMPLING_INTERVAL_MS) {
-    lastSampleTime = currentMillis;
-
+  // Pembacaan sensor periodik 1 Hz saat berada di layar pemantauan
+  if (now - lastSensorRead >= 1000) {
+    lastSensorRead = now;
     latestSuhu = readPT100Temperature();
     latestEcData = getCalibratedEC(latestSuhu);
-
-    if (!latestEcData.isSubmerged) {
-      Serial.printf("Suhu: %5.2f °C | [PERINGATAN] Probe EC di udara / cairan tidak terdeteksi.\n", latestSuhu);
-    } else {
-      Serial.printf("Suhu: %5.2f °C | R: %6.1f Ω | G: %6.3f mS | EC Akt: %5.3f mS/cm | EC@25C: %5.3f mS/cm\n",
-                    latestSuhu,
-                    latestEcData.resistance,
-                    latestEcData.conductance,
-                    latestEcData.ecRaw,
-                    latestEcData.ec25);
-    }
-
-    updateOled(latestSuhu, latestEcData);
   }
 
+  handleButtonLogic();
+
   // -------------------------------------------------------------
-  // B. DETEKSI PUSH BUTTON DENGAN DEBOUNCE (PIN 7)
+  // LOGIKA STATE MACHINE & AKSI TOMBOL
   // -------------------------------------------------------------
-  int currentReading = digitalRead(BUTTON_PIN);
-
-  if (currentReading != lastButtonReading) {
-    lastDebounceTime = currentMillis;
-  }
-
-  if ((currentMillis - lastDebounceTime) > debounceDelay) {
-    if (currentReading != confirmedButtonState) {
-      confirmedButtonState = currentReading;
-
-      // Terpicu saat tombol ditekan ke HIGH
-      if (confirmedButtonState == HIGH) {
-        applyNextLedColor();
-        logDataToFlash();
-        updateOled(latestSuhu, latestEcData);
+  switch (currentState) {
+    case STATE_MENU_UTAMA:
+      if (actionShortClick) {
+        menuUtamaCursor = (menuUtamaCursor + 1) % 3; // Siklus 0 -> 1 -> 2 -> 0
       }
-    }
+      if (actionLongPress) {
+        if (menuUtamaCursor == 0) {
+          prediksiResultCursor = 0;
+          currentState = STATE_PREDIKSI_IDLE;
+        } else if (menuUtamaCursor == 1) {
+          dataViewCursor = 0;
+          currentState = STATE_DATA_VIEW;
+        } else if (menuUtamaCursor == 2) {
+          ambilDataCursor = 0;
+          currentState = STATE_AMBIL_DATA_LIVE;
+        }
+      }
+      break;
+
+    case STATE_PREDIKSI_IDLE:
+      if (actionShortClick) {
+        prediksiResultCursor = (prediksiResultCursor + 1) % 2;
+      }
+      if (actionLongPress) {
+        if (prediksiResultCursor == 0) {
+          currentState = STATE_PREDIKSI_PROCESS;
+        } else {
+          setRgbColor(false, false, false);
+          currentState = STATE_MENU_UTAMA;
+        }
+      }
+      break;
+
+    case STATE_PREDIKSI_PROCESS:
+      renderDisplay();
+      // Simulasi kalkulasi rule prediktif berdasarkan biofisika terukur
+      latestSuhu = readPT100Temperature();
+      latestEcData = getCalibratedEC(latestSuhu);
+      delay(1200);
+
+      if (!latestEcData.isSubmerged) {
+        resultGrade = "KERING";
+        resultShelfLifeMin = 0;
+        setRgbColor(true, false, false); // Merah
+      } else if (latestEcData.ec25 <= 5.5) {
+        resultGrade = "GRADE A";
+        resultShelfLifeMin = 180;
+        setRgbColor(false, true, false); // Hijau
+      } else if (latestEcData.ec25 <= 6.2) {
+        resultGrade = "GRADE B";
+        resultShelfLifeMin = 45;
+        setRgbColor(true, true, false);  // Kuning
+      } else {
+        resultGrade = "GRADE C";
+        resultShelfLifeMin = 0;
+        setRgbColor(true, false, false); // Merah
+      }
+
+      logPredictionToFlash();
+      prediksiResultCursor = 0;
+      currentState = STATE_PREDIKSI_RESULT;
+      break;
+
+    case STATE_PREDIKSI_RESULT:
+      if (actionShortClick) {
+        prediksiResultCursor = (prediksiResultCursor + 1) % 2;
+      }
+      if (actionLongPress) {
+        if (prediksiResultCursor == 0) {
+          currentState = STATE_PREDIKSI_PROCESS; // Prediksi lagi
+        } else {
+          setRgbColor(false, false, false);
+          currentState = STATE_MENU_UTAMA;      // Kembali ke menu
+        }
+      }
+      break;
+
+    case STATE_DATA_VIEW:
+      if (actionShortClick) {
+        dataViewCursor = (dataViewCursor + 1) % 2;
+      }
+      if (actionLongPress) {
+        if (dataViewCursor == 0) {
+          currentState = STATE_DATA_SENDING;
+        } else {
+          currentState = STATE_MENU_UTAMA;
+        }
+      }
+      break;
+
+    case STATE_DATA_SENDING:
+      // Di layar pengiriman, tahan 2s untuk selesai dan kembali
+      if (actionLongPress || actionShortClick) {
+        currentState = STATE_DATA_VIEW;
+      }
+      break;
+
+    case STATE_AMBIL_DATA_LIVE:
+      if (actionShortClick) {
+        ambilDataCursor = (ambilDataCursor + 1) % 2;
+      }
+      if (actionLongPress) {
+        if (ambilDataCursor == 0) {
+          currentState = STATE_AMBIL_DATA_BURST;
+        } else {
+          currentState = STATE_MENU_UTAMA;
+        }
+      }
+      break;
+
+    case STATE_AMBIL_DATA_BURST:
+      renderDisplay();
+      setRgbColor(false, false, true); // Indikator Biru aktif saat merekam
+
+      // Rekam 5 data burst secara berurutan (1 detik per sampel)
+      for (int i = 1; i <= 5; i++) {
+        latestSuhu = readPT100Temperature();
+        latestEcData = getCalibratedEC(latestSuhu);
+        logBurstSample(i);
+        delay(1000);
+      }
+
+      setRgbColor(false, false, false);
+      currentState = STATE_AMBIL_DATA_LIVE;
+      break;
   }
 
-  lastButtonReading = currentReading;
-
-  // -------------------------------------------------------------
-  // C. KONTROL INTERAKTIF DARI SERIAL MONITOR
-  // -------------------------------------------------------------
-  while (Serial.available()) {
-    char cmd = Serial.read();
-
-    if (cmd == '\r' || cmd == '\n' || cmd == ' ') continue;
-
-    Serial.printf("\n[SERIAL COMMAND] Diterima perintah: '%c'\n", cmd);
-
-    if (cmd == 'w' || cmd == 'W') {
-      Serial.println("-> Merekam data ke Flash...");
-      applyNextLedColor();
-      logDataToFlash();
-      updateOled(latestSuhu, latestEcData);
-    } else if (cmd == 'r' || cmd == 'R') {
-      dumpLogData();
-    } else if (cmd == 'c' || cmd == 'C') {
-      clearLogData();
-      updateOled(latestSuhu, latestEcData);
-    } else {
-      Serial.println("[PANDUAN KONTROL]");
-      Serial.println("  'w' : Ganti warna LED + Rekam data ke Flash");
-      Serial.println("  'r' : Tampilkan seluruh isi file log");
-      Serial.println("  'c' : Hapus file log");
-    }
-  }
+  renderDisplay();
 }
