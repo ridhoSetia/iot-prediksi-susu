@@ -666,13 +666,31 @@ const int g_milk_quality_model_data_len = 11456; // Ukuran ringkas ~11.4 KB
 
 ---
 
-## BAB VI: ARSITEKTUR IOT OFFLINE-FIRST & CLOUD
+## BAB VI: ARSITEKTUR IOT OFFLINE-FIRST, LOGIKA FSM, & SINKRONISASI CLOUD
 
-### 1. Mekanisme Offline Buffer MicroSD
+### 1. Mekanisme Penyimpanan Luring Internal Flash (LittleFS)
 
-Alat ukur beroperasi secara mandiri di area kandang pelosok yang tidak memiliki cakupan sinyal nirkabel. Setiap siklus inferensi menghasilkan struktur data terenkapsulasi yang ditulis langsung ke antrean berkas lokal `/spool/queue.jsonl` pada kartu memori MicroSD (antarmuka SPI):
+Untuk memaksimalkan efisiensi komputasi ESP32-S3, meminimalkan latensi bus SPI eksternal, dan mengeliminasi ketergantungan modul MicroSD fisik, sistem memanfaatkan partisi SPI Flash internal mikrokontroler menggunakan sistem berkas **LittleFS**. Pendekatan ini membuat perangkat kebal terhadap getaran mekanis saat pengujian lapangan serta mencegah korupsi data akibat kartu memori yang longgar.
 
-#### Spesifikasi Struktur Payload Telemetri (JSON):
+Penyimpanan internal dialokasikan untuk dua mode operasional terpisah melalui skema berkas ganda (*dual-file schema*):
+
+* **Berkas Pengambilan Dataset (`/dataset_susu.csv`):** Menampung data mentah hasil *5-burst sampling* saat instrumen berada dalam fase riset laboratorium atau pengambilan sampel peternakan.
+Format baris CSV:
+
+
+```csv
+id,timestamp,burst_idx,temp_c,r_ohm,ec_raw,ec_25,submerged
+1,1714560000,1,28.45,192.1,4.925,4.621,1
+
+```
+
+
+
+* **Berkas Log Operasional Lapangan (`/prediksi_log.json`):** Menampung rekaman telemetri hasil inferensi model TinyML on-device saat alat beroperasi di tingkat peternak.
+
+
+
+#### Struktur Spesifikasi Payload Telemetri (JSON):
 
 ```json
 {
@@ -696,47 +714,184 @@ Alat ukur beroperasi secara mandiri di area kandang pelosok yang tidak memiliki 
 
 ```
 
-* Nilai `timestamp` dicatat dari RTC internal ESP32-S3 yang telah tersinkronisasi SNTP. Hal ini menjamin audit historis waktu perah tetap akurat meskipun data baru tersinkronisasi ke server beberapa jam kemudian.
+---
 
+### 2. Desain Finite State Machine (FSM) & Navigasi Dual-Action Button
 
-
-### 2. Logika Sinkronisasi Asinkron
-
-Mekanisme pengosongan antrean (*spooling upload*) dijalankan di latar belakang (*background task*) pada Core 0 ESP32-S3, sementara Core 1 didedikasikan penuh untuk akuisisi sensor dan inferensi TinyML:
+Antarmuka pengguna (UI) pada layar OLED 0.96" dikendalikan sepenuhnya melalui sistem kendali tombol tunggal (*single push button*) pada GPIO 7 berbasis **Finite State Machine (FSM)**.
 
 ```
-[Loop Rutin Firmware] 
-        |
-        +---> Periksa Status Jaringan Wi-Fi (Non-blocking scan)
-                    |
-          +---------+---------+
-          |                   |
-     [Tidak Terhubung]   [Terhubung]
-          |                   |
-          v                   v
-     [Tetap Simpan      [Buka File /spool/queue.jsonl di MicroSD]
-      ke MicroSD]             |
-                              v
-                        [Baca Baris Antrean Tertua]
-                              |
-                              v
-                        [HTTP POST /api/v1/telemetry / Publish MQTT]
-                              |
-                     +--------+--------+
-                     |                 |
-               [HTTP 200 OK]    [Koneksi Putus / Timeout]
-                     |                 |
-                     v                 v
-          [Tandai Pointer /       [Tutup File & Coba Lagi
-           Hapus Baris Terkirim]   pada Siklus Berikutnya]
++---------------------------------------------------------------------------------------------------+
+|                                  SPESIFIKASI DUAL-ACTION BUTTON                                   |
++----------------------+-----------------------+----------------------------------------------------+
+| Tipe Aksi            | Ambang Batas Durasi   | Peran Navigasi / Kontrol Sistem                    |
++----------------------+-----------------------+----------------------------------------------------+
+| Klik Singkat (Short) | 50 ms ≤ t < 2000 ms   | Memindahkan kursor/sorotan menu secara melingkar   |
+|                      | (Debounce: 50 ms)     | (Cycle cursor index: 0 -> 1 -> 2 -> 0)[cite: 4, 6].            |
++----------------------+-----------------------+----------------------------------------------------+
+| Tekan & Tahan (Hold) | t ≥ 2000 ms           | Memilih opsi, mengeksekusi inferensi, atau memulai |
+|                      | (Hold Duration)       | aksi penyimpanan/transmisi[cite: 4, 6].                        |
++----------------------+-----------------------+----------------------------------------------------+
+| Visual Feedback      | Real-time selama hold | OLED menampilkan Progress Bar (0-128 px) di dasar  |
+|                      |                       | layar (y=62, h=2) sebelum aksi terpicu[cite: 4, 6].           |
++----------------------+-----------------------+----------------------------------------------------+
 
 ```
 
-Payload dikirimkan secara sekuensial (*batch chunk*). Penghapusan baris antrean pada MicroSD hanya dieksekusi apabila server backend merespons dengan kode status **`HTTP 200 OK`** atau konfirmasi **`MQTT PUBACK`**.
+#### Diagram Alir State Machine:
 
-### 3. Aplikasi Dasbor Pemantauan KUD
+```mermaid
+stateDiagram-v2
+    [*] --> STATE_MENU_UTAMA
 
-Data yang berhasil tersinkronisasi di server diproses oleh sistem backend terpusat untuk disajikan ke operator Koperasi Unit Desa:
+    state STATE_MENU_UTAMA {
+        [*] --> CursorNav
+        CursorNav --> CursorNav: Klik Singkat (Pindah 1/2/3)
+    }
+
+    STATE_MENU_UTAMA --> STATE_PREDIKSI_IDLE: Tahan 2s di Menu 1
+    STATE_MENU_UTAMA --> STATE_DATA_VIEW: Tahan 2s di Menu 2
+    STATE_MENU_UTAMA --> STATE_AMBIL_DATA_LIVE: Tahan 2s di Menu 3
+
+    state STATE_PREDIKSI_IDLE {
+        [*] --> PrediksiNav
+        PrediksiNav --> PrediksiNav: Klik Singkat (Toggle Prediksi/Kembali)
+    }
+    STATE_PREDIKSI_IDLE --> STATE_MENU_UTAMA: Tahan 2s pada [Kembali]
+    STATE_PREDIKSI_IDLE --> STATE_PREDIKSI_PROCESS: Tahan 2s pada [*Prediksi]
+
+    state STATE_PREDIKSI_PROCESS {
+        [*] --> RunTinyML: Eksekusi Inferensi & Log ke Flash
+    }
+    STATE_PREDIKSI_PROCESS --> STATE_PREDIKSI_RESULT: Inferensi Selesai
+
+    state STATE_PREDIKSI_RESULT {
+        [*] --> ResultNav
+        ResultNav --> ResultNav: Klik Singkat (Toggle Prediksi Lagi/Kembali)
+    }
+    STATE_PREDIKSI_RESULT --> STATE_PREDIKSI_PROCESS: Tahan 2s pada [*Prediksi]
+    STATE_PREDIKSI_RESULT --> STATE_MENU_UTAMA: Tahan 2s pada [Kembali]
+
+    state STATE_DATA_VIEW {
+        [*] --> DataNav
+        DataNav --> DataNav: Klik Singkat (Toggle Kirim/Kembali)
+    }
+    STATE_DATA_VIEW --> STATE_MENU_UTAMA: Tahan 2s pada [Kembali]
+    STATE_DATA_VIEW --> STATE_DATA_SENDING: Tahan 2s pada [*Kirim Data]
+
+    state STATE_DATA_SENDING {
+        [*] --> TransmitData: Scan Wi-Fi & Batch Upload
+    }
+    STATE_DATA_SENDING --> STATE_DATA_VIEW: Klik/Tahan Selesai
+
+    state STATE_AMBIL_DATA_LIVE {
+        [*] --> LiveNav
+        LiveNav --> LiveNav: Klik Singkat (Toggle Rekam/Kembali)
+    }
+    STATE_AMBIL_DATA_LIVE --> STATE_MENU_UTAMA: Tahan 2s pada [Kembali]
+    STATE_AMBIL_DATA_LIVE --> STATE_AMBIL_DATA_BURST: Tahan 2s pada [*Rekam 5x]
+
+    state STATE_AMBIL_DATA_BURST {
+        [*] --> BurstLogging: 5x Sampling (1s/baris) -> /dataset_susu.csv
+    }
+    STATE_AMBIL_DATA_BURST --> STATE_AMBIL_DATA_LIVE: Selesai 5 Detik
+
+```
+
+#### Rincian Logika Tiga Menu Utama:
+
+1. **Menu 1: Prediksi Susu (`STATE_PREDIKSI_IDLE` $\rightarrow$ `STATE_PREDIKSI_RESULT`)**
+* **Standby Layar:** Menampilkan live reading suhu aktual PT100 dan $EC_{25}$ secara real-time.
+
+
+* **Pemicu Inferensi:** Pengguna menahan tombol pada opsi `[*Prediksi]` selama 2 detik.
+
+
+* **Eksekusi & Visualisasi:** ESP32-S3 menjalankan normalisasi termal, mengeksekusi inferensi TinyML INT8 di SRAM (< 10 ms), menyalakan indikator LED RGB (Hijau: Grade A, Kuning: Grade B, Merah: Grade C), dan menulis hasil ke `/prediksi_log.json`.
+
+
+* **Aksi Lanjutan:** Layar hasil menyediakan dua tombol navigasi bawah: `[Prediksi Lagi]` (mengulang inferensi) dan `[Kembali]` (mematikan LED dan kembali ke Menu Utama).
+
+
+
+
+2. **Menu 2: Lihat & Kirim Data (`STATE_DATA_VIEW` $\rightarrow$ `STATE_DATA_SENDING`)**
+* **Inspeksi Lokal:** Menampilkan metadata penyimpanan LittleFS: status partisi Flash (`OK`/`FAIL`), nama berkas aktif, dan total akumulasi baris log tersimpan.
+
+
+* **Pemicu Transmisi:** Menahan tombol pada opsi `[*Kirim Data]` selama 2 detik mengalihkan sistem ke mode sinkronisasi IoT.
+
+
+* **Status Transmisi:** Layar memperbarui status bertahap: pemindaian Wi-Fi lokal, *handshake* ke endpoint backend server KUD, serta jumlah kuantitas data yang berhasil dikirimkan. Menahan tombol kembali akan menutup transmisi dan kembali ke layar data.
+
+
+
+
+3. **Menu 3: Ambil Data Susu (`STATE_AMBIL_DATA_LIVE` $\rightarrow$ `STATE_AMBIL_DATA_BURST`)**
+* **Mode Riset Mandiri:** Didesain khusus untuk protokol akuisisi dataset tanpa memerlukan laptop di kandang.
+
+
+* **Live Streaming:** Menampilkan pembacaan suhu cairan, konduktivitas listrik $EC_{25}$, status keterendaman probe (`SUBMERGED` atau `KERING`), serta penghitung total baris dataset tersimpan (`#Log`).
+
+
+* **Otomasi 5-Burst Sampling:** Saat pengguna menahan tombol pada `[*Rekam 5x]`, sistem mengaktifkan LED Biru dan mengeksekusi 5 kali siklus sampling sensor berturut-turut (interval 1 detik per sampel). Setiap baris data langsung di-append ke `/dataset_susu.csv` pada Flash internal. Setelah 5 detik tuntas, sistem kembali ke layar live monitoring.
+
+
+
+
+
+---
+
+### 3. Logika Sinkronisasi Asinkron & Transmisi Data Batch
+
+Mekanisme pengiriman data telemetri dirancang secara *on-demand* (hanya aktif saat diinstruksikan oleh operator pos penampungan atau peternak melalui Menu 2), sehingga menghemat daya baterai dan membebaskan komputasi inti mikrokontroler selama pengukuran.
+
+```
+[Operator Memilih 'Kirim Data' di Menu 2 (Hold 2 Detik)]
+                         |
+                         v
+        [Pindai & Hubungkan ke Jaringan Wi-Fi]
+                         |
+             +-----------+-----------+
+             |                       |
+      [Gagal Terkoneksi]      [Wi-Fi Terhubung]
+             |                       |
+             v                       v
+     [Tampilkan Error        [Buka Berkas Log di LittleFS]
+      di OLED & Batal]               |
+                                     v
+                       [Baca Chunk Data (Maks. 20 Baris/Batch)]
+                                     |
+                                     v
+                       [Kirim HTTP POST / Endpoint API KUD]
+                                     |
+                        +------------+------------+
+                        |                         |
+                 [HTTP 200 OK]           [Timeout / Eror 5xx]
+                        |                         |
+                        v                         v
+               [Tandai / Hapus Baris      [Tutup Koneksi & Simpan
+                Terkirim di LittleFS]      Sisa Log untuk Nanti]
+                        |                         |
+                        +------------+------------+
+                                     |
+                                     v
+                     [Tampilkan Status Selesai di OLED]
+
+```
+
+* **Penanganan Transmisi Batch:** Berkas dibaca per baris atau dalam blok chunk berukuran ringkas (maksimum 20 baris per transaksi HTTP) untuk mencegah lonjakan alokasi buffer RAM pada modul Wi-Fi ESP32-S3.
+
+
+* **Jaminan Integritas (*Zero Data Loss*):** Penghapusan baris data atau pengosongan berkas log pada LittleFS hanya dieksekusi setelah peladen cloud memberikan respons status **`HTTP 200 OK`** atau konfirmasi penerimaan yang valid. Jika koneksi terputus di tengah jalan, berkas log tetap utuh di dalam Flash internal dan siap dikirim ulang pada kesempatan berikutnya.
+
+
+
+---
+
+### 4. Aplikasi Dasbor Pemantauan KUD & Integrasi Logistik
+
+Seluruh telemetri yang berhasil disinkronkan dari perangkat lapangan dialirkan ke sistem server terpusat KUD guna menyediakan visibilitas rantai pasok secara transparan:
 
 ```
 +---------------------------------------------------------------------------------------------------+
@@ -764,7 +919,7 @@ Data yang berhasil tersinkronisasi di server diproses oleh sistem backend terpus
 
 #### Dampak Operasional Integrasi Cloud:
 
-1. **Transparansi Transaksi Mutu:** Peternak dan pos penampungan memiliki bukti data biofisika numerik yang sama, meniadakan perdebatan subjektif saat penetapan harga susu per liter.
+1. **Transparansi Transaksi Mutu:** Menghilangkan perselisihan subjektif antara peternak dan petugas pos penampungan, karena status kelayakan mutu dan nilai desimal biofisika tersimpan secara permanen dan terverifikasi oleh kedua pihak.
 
 
-2. **Dynamic Routing Armada Pendingin:** Dasbor secara otomatis mengkalkulasi ulang rute truk tangki pendingin untuk menjemput susu milik kelompok ternak yang memiliki *Estimated Shelf-Life Window* paling mendesak, menyelamatkan komoditas sebelum terlanjur mengalami koagulasi asam.
+2. **Dynamic Fleet Dispatching:** Menentukan rute jemput armada truk pendingin secara proaktif berdasarkan sisa waktu simpan, memprioritaskan kelompok peternak yang kondisi susunya paling kritis sebelum fermentasi asam laktat merusak produk secara permanen.
