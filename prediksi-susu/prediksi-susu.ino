@@ -31,10 +31,15 @@ enum SystemState {
 SystemState currentState = STATE_MENU_UTAMA;
 
 // Indeks Navigasi Menu
-int menuUtamaCursor = 0;      // 0: Prediksi, 1: Lihat & Kirim, 2: Ambil Data
-int prediksiResultCursor = 0; // 0: Prediksi Lagi, 1: Kembali
-int dataViewCursor = 0;       // 0: Kirim Data, 1: Kembali
-int ambilDataCursor = 0;      // 0: Rekam (5x), 1: Kembali
+int menuUtamaCursor = 0;       // 0: Prediksi, 1: Lihat & Kirim, 2: Ambil Data
+int prediksiResultCursor = 0;  // 0: Prediksi Lagi, 1: Kembali
+int dataViewCursor = 0;        // 0: Kirim Data, 1: Kembali
+int ambilDataCursor = 0;       // 0: Ganti Wadah, 1: Rekam (5x), 2: Kembali
+
+// Pilihan Wadah Sampel Uji Lab
+const char* SAMPLE_IDS[] = { "S_RUANG", "S_DINGIN", "S_HANGAT" };
+const int TOTAL_SAMPLE_IDS = 3;
+int currentSampleIdx = 0;  // Default: S_RUANG
 
 // =================================================================
 // 1. PIN & KONFIGURASI LAYAR OLED SSD1306 (I2C)
@@ -48,17 +53,16 @@ int ambilDataCursor = 0;      // 0: Rekam (5x), 1: Kembali
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // =================================================================
-// 2. PIN TOMBOL DUAL-ACTION (KLIK & TAHAN 2 DETIK)
+// 2. PIN TOMBOL DUAL-ACTION (KLIK & TAHAN)
 // =================================================================
 #define BUTTON_PIN 7
 
 unsigned long btnPressStartTime = 0;
 bool isBtnPressed = false;
 bool longPressTriggered = false;
-const unsigned long HOLD_DURATION_MS = 400;
+const unsigned long HOLD_DURATION_MS = 400;  // Durasi tahan untuk aksi
 const unsigned long DEBOUNCE_DELAY_MS = 50;
 
-// Flag pemicu aksi
 bool actionShortClick = false;
 bool actionLongPress = false;
 
@@ -97,7 +101,7 @@ void setRgbColor(bool r, bool g, bool b) {
 
 const float R_REF = 1000.0;
 const float V_IN = 3.3;
-const float CAL_SLOPE  = 2.204908;
+const float CAL_SLOPE = 2.204908;
 const float CAL_OFFSET = -2.276239;
 const float ALPHA_TEMP = 0.020;
 
@@ -120,7 +124,6 @@ Adafruit_MAX31865 thermo = Adafruit_MAX31865(10, 11, 12, 13);
 bool isStorageReady = false;
 int logCount = 0;
 
-// Variabel Hasil Prediksi
 String resultGrade = "GRADE A";
 int resultShelfLifeMin = 180;
 
@@ -198,14 +201,21 @@ float readPT100Temperature() {
 void logBurstSample(int burstIdx) {
   if (!isStorageReady) return;
 
+  bool fileBaru = !LittleFS.exists("/dataset_susu.csv");
   File dataFile = LittleFS.open("/dataset_susu.csv", FILE_APPEND);
   if (!dataFile) return;
+
+  // Tulis header jika berkas baru dibuat
+  if (fileBaru || dataFile.size() == 0) {
+    dataFile.println("sample_id,id,timestamp,burst_idx,temp_c,r_ohm,ec_raw,ec_25,submerged");
+  }
 
   logCount++;
   unsigned long timeStamp = millis();
 
-  // Format CSV: id,timestamp,burst_idx,temp_c,r_ohm,ec_raw,ec_25,submerged
-  dataFile.printf("%d,%lu,%d,%.2f,%.1f,%.3f,%.3f,%d\n",
+  // Rekam data lengkap termasuk sample_id
+  dataFile.printf("%s,%d,%lu,%d,%.2f,%.1f,%.3f,%.3f,%d\n",
+                  SAMPLE_IDS[currentSampleIdx],
                   logCount,
                   timeStamp,
                   burstIdx,
@@ -234,7 +244,7 @@ void logPredictionToFlash() {
 }
 
 // =================================================================
-// 9. LOGIKA DETEKSI TOMBOL (SHORT CLICK VS HOLD 2 DETIK)
+// 9. LOGIKA DETEKSI TOMBOL (SHORT CLICK VS HOLD)
 // =================================================================
 void handleButtonLogic() {
   actionShortClick = false;
@@ -251,7 +261,7 @@ void handleButtonLogic() {
       unsigned long holdDuration = millis() - btnPressStartTime;
       if (holdDuration >= HOLD_DURATION_MS && !longPressTriggered) {
         longPressTriggered = true;
-        actionLongPress = true; // Terpicu aksi tahan
+        actionLongPress = true;
       }
     }
   } else {
@@ -259,7 +269,7 @@ void handleButtonLogic() {
       unsigned long pressDuration = millis() - btnPressStartTime;
       isBtnPressed = false;
       if (!longPressTriggered && pressDuration >= DEBOUNCE_DELAY_MS) {
-        actionShortClick = true; // Terpicu aksi klik biasa
+        actionShortClick = true;
       }
     }
   }
@@ -273,24 +283,18 @@ void renderDisplay() {
   display.setTextColor(SSD1306_WHITE);
 
   switch (currentState) {
-    // -------------------------------------------------------------
-    // 1. MENU UTAMA
-    // -------------------------------------------------------------
     case STATE_MENU_UTAMA:
       display.setTextSize(1);
       display.setCursor(20, 0);
       display.print("= MENU UTAMA =");
       display.drawLine(0, 9, 128, 9, SSD1306_WHITE);
 
-      // Menu 0: Prediksi Susu
       display.setCursor(10, 14);
       display.print(menuUtamaCursor == 0 ? "> 1. Prediksi Susu" : "  1. Prediksi Susu");
 
-      // Menu 1: Lihat & Kirim Data
       display.setCursor(10, 26);
       display.print(menuUtamaCursor == 1 ? "> 2. Lihat & Kirim" : "  2. Lihat & Kirim");
 
-      // Menu 2: Ambil Data Susu
       display.setCursor(10, 38);
       display.print(menuUtamaCursor == 2 ? "> 3. Ambil Data" : "  3. Ambil Data");
 
@@ -299,9 +303,6 @@ void renderDisplay() {
       display.print("Klik:Pindah Than:Plih");
       break;
 
-    // -------------------------------------------------------------
-    // 2. MENU PREDIKSI: STANDBY
-    // -------------------------------------------------------------
     case STATE_PREDIKSI_IDLE:
       display.setTextSize(1);
       display.setCursor(15, 0);
@@ -320,9 +321,6 @@ void renderDisplay() {
       display.print(prediksiResultCursor == 0 ? "[*Prediksi] [Kembali]" : "[Prediksi] [*Kembali]");
       break;
 
-    // -------------------------------------------------------------
-    // 2. MENU PREDIKSI: PROSES
-    // -------------------------------------------------------------
     case STATE_PREDIKSI_PROCESS:
       display.setTextSize(1);
       display.setCursor(10, 15);
@@ -333,9 +331,6 @@ void renderDisplay() {
       display.print("Memproses TinyML...");
       break;
 
-    // -------------------------------------------------------------
-    // 2. MENU PREDIKSI: HASIL
-    // -------------------------------------------------------------
     case STATE_PREDIKSI_RESULT:
       display.setTextSize(1);
       display.setCursor(24, 0);
@@ -354,30 +349,29 @@ void renderDisplay() {
       display.print(prediksiResultCursor == 0 ? "[*Prediksi] [Kembali]" : "[Prediksi] [*Kembali]");
       break;
 
-    // -------------------------------------------------------------
-    // 3. MENU LIHAT & KIRIM: TAMPILAN
-    // -------------------------------------------------------------
     case STATE_DATA_VIEW:
       display.setTextSize(1);
       display.setCursor(14, 0);
       display.print("DATA FLASH LITTLEFS");
       display.drawLine(0, 9, 128, 9, SSD1306_WHITE);
 
-      display.setCursor(0, 14);
-      display.printf("Total Log: %d data", logCount);
-      display.setCursor(0, 25);
-      display.printf("File: dataset_susu.csv");
-      display.setCursor(0, 36);
-      display.printf("Flash Ready: %s", isStorageReady ? "OK" : "FAIL");
+      // Baris 1: Status Dataset Pelatihan (CSV)
+      display.setCursor(0, 13);
+      display.printf("CSV : #%d sampel", logCount);
+
+      // Baris 2: Status Log Prediksi (JSON)
+      display.setCursor(0, 24);
+      display.printf("JSON: %s", LittleFS.exists("/prediksi_log.json") ? "Tersedia" : "Kosong");
+
+      // Baris 3: Status Flash Hardware
+      display.setCursor(0, 35);
+      display.printf("Mem : %s", isStorageReady ? "LittleFS OK" : "FS Error");
 
       display.drawLine(0, 48, 128, 48, SSD1306_WHITE);
       display.setCursor(8, 53);
       display.print(dataViewCursor == 0 ? "[*Kirim] [Kembali]" : "[Kirim] [*Kembali]");
       break;
 
-    // -------------------------------------------------------------
-    // 3. MENU LIHAT & KIRIM: PROSES PENGIRIMAN
-    // -------------------------------------------------------------
     case STATE_DATA_SENDING:
       display.setTextSize(1);
       display.setCursor(16, 0);
@@ -396,47 +390,46 @@ void renderDisplay() {
       display.print("[*Tahan: Selesai]");
       break;
 
-    // -------------------------------------------------------------
-    // 4. MENU AMBIL DATA: LIVE STREAM SENSOR
-    // -------------------------------------------------------------
     case STATE_AMBIL_DATA_LIVE:
       display.setTextSize(1);
       display.setCursor(10, 0);
       display.print("PENGAMBILAN DATASET");
       display.drawLine(0, 9, 128, 9, SSD1306_WHITE);
 
-      display.setCursor(0, 13);
-      display.printf("Suhu : %.2f C", latestSuhu);
-      display.setCursor(0, 23);
-      if (latestEcData.isSubmerged) {
-        display.printf("EC25 : %.3f mS/cm", latestEcData.ec25);
+      // Pilihan Wadah Aktif (Kursor 0)
+      display.setCursor(0, 12);
+      if (ambilDataCursor == 0) {
+        display.printf("> ID : <%s>", SAMPLE_IDS[currentSampleIdx]);
       } else {
-        display.print("EC25 : -- (KERING)");
+        display.printf("  ID : %s", SAMPLE_IDS[currentSampleIdx]);
       }
 
-      display.setCursor(0, 33);
-      display.printf("Log  : #%d Tersimpan", logCount);
+      display.setCursor(0, 22);
+      display.printf("  Suhu : %.2f C", latestSuhu);
 
-      display.drawLine(0, 47, 128, 47, SSD1306_WHITE);
-      display.setCursor(2, 52);
-      display.print(ambilDataCursor == 0 ? "[*Rekam 5x] [Kembali]" : "[Rekam 5x] [*Kembali]");
+      display.setCursor(0, 32);
+      if (latestEcData.isSubmerged) {
+        display.printf("  EC25 : %.3f mS", latestEcData.ec25);
+      } else {
+        display.print("  EC25 : -- (KERING)");
+      }
+
+      display.setCursor(0, 42);
+      display.printf("  Log  : #%d Tersimpan", logCount);
+
+      display.drawLine(0, 51, 128, 51, SSD1306_WHITE);
+      display.setCursor(4, 54);
+      display.print(ambilDataCursor == 1 ? "[*Rekam]" : "[Rekam]");
+      display.setCursor(68, 54);
+      display.print(ambilDataCursor == 2 ? "[*Kembali]" : "[Kembali]");
       break;
 
-    // -------------------------------------------------------------
-    // 4. MENU AMBIL DATA: BURST SAMPLING IN PROGRESS
-    // -------------------------------------------------------------
     case STATE_AMBIL_DATA_BURST:
-      display.setTextSize(1);
-      display.setCursor(4, 10);
-      display.print("MEREKAM BURST 5x...");
-      display.setCursor(4, 28);
-      display.print("Jangan Angkat Probe!");
-      display.setCursor(4, 46);
-      display.print("Menyimpan ke Flash");
+      // Tampilan dipusatkan di loop eksekusi burst
       break;
   }
 
-  // Visualisasi Progress Bar Tahan 2 Detik di Sisi Bawah Layar
+  // Visualisasi Progress Bar Tahan
   if (isBtnPressed && !longPressTriggered) {
     unsigned long holdTime = millis() - btnPressStartTime;
     int barWidth = map(constrain(holdTime, 0, HOLD_DURATION_MS), 0, HOLD_DURATION_MS, 0, 128);
@@ -453,16 +446,13 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
 
-  // Inisialisasi Tombol Pin 7
   pinMode(BUTTON_PIN, INPUT_PULLDOWN);
 
-  // Inisialisasi LED RGB
   pinMode(PIN_LED_RED, OUTPUT);
   pinMode(PIN_LED_GREEN, OUTPUT);
   pinMode(PIN_LED_BLUE, OUTPUT);
   setRgbColor(false, false, false);
 
-  // Inisialisasi I2C OLED
   Wire.begin(OLED_SDA, OLED_SCL);
   Wire.setClock(100000);
 
@@ -471,10 +461,8 @@ void setup() {
     display.display();
   }
 
-  // Inisialisasi MAX31865 (PT100)
   thermo.begin(MAX31865_2WIRE);
 
-  // Inisialisasi Flash Internal LittleFS
   if (LittleFS.begin(true)) {
     isStorageReady = true;
     if (LittleFS.exists("/dataset_susu.csv")) {
@@ -483,10 +471,10 @@ void setup() {
         if (f.read() == '\n') logCount++;
       }
       f.close();
+      if (logCount > 0) logCount--;  // Kurangi 1 baris untuk header
     }
   }
 
-  // Inisialisasi Pin Eksitasi AC EC
   pinMode(PIN_DRIVE_A, OUTPUT);
   pinMode(PIN_DRIVE_B, OUTPUT);
   pinMode(PIN_ADC_SENSE, INPUT);
@@ -503,7 +491,6 @@ void loop() {
   static unsigned long lastSensorRead = 0;
   unsigned long now = millis();
 
-  // Pembacaan sensor periodik 1 Hz saat berada di layar pemantauan
   if (now - lastSensorRead >= 1000) {
     lastSensorRead = now;
     latestSuhu = readPT100Temperature();
@@ -512,13 +499,10 @@ void loop() {
 
   handleButtonLogic();
 
-  // -------------------------------------------------------------
-  // LOGIKA STATE MACHINE & AKSI TOMBOL
-  // -------------------------------------------------------------
   switch (currentState) {
     case STATE_MENU_UTAMA:
       if (actionShortClick) {
-        menuUtamaCursor = (menuUtamaCursor + 1) % 3; // Siklus 0 -> 1 -> 2 -> 0
+        menuUtamaCursor = (menuUtamaCursor + 1) % 3;
       }
       if (actionLongPress) {
         if (menuUtamaCursor == 0) {
@@ -550,7 +534,6 @@ void loop() {
 
     case STATE_PREDIKSI_PROCESS:
       renderDisplay();
-      // Simulasi kalkulasi rule prediktif berdasarkan biofisika terukur
       latestSuhu = readPT100Temperature();
       latestEcData = getCalibratedEC(latestSuhu);
       delay(1200);
@@ -558,19 +541,19 @@ void loop() {
       if (!latestEcData.isSubmerged) {
         resultGrade = "KERING";
         resultShelfLifeMin = 0;
-        setRgbColor(true, false, false); // Merah
+        setRgbColor(true, false, false);
       } else if (latestEcData.ec25 <= 5.5) {
         resultGrade = "GRADE A";
         resultShelfLifeMin = 180;
-        setRgbColor(false, true, false); // Hijau
+        setRgbColor(false, true, false);
       } else if (latestEcData.ec25 <= 6.2) {
         resultGrade = "GRADE B";
         resultShelfLifeMin = 45;
-        setRgbColor(true, true, false);  // Kuning
+        setRgbColor(true, true, false);
       } else {
         resultGrade = "GRADE C";
         resultShelfLifeMin = 0;
-        setRgbColor(true, false, false); // Merah
+        setRgbColor(true, false, false);
       }
 
       logPredictionToFlash();
@@ -584,10 +567,10 @@ void loop() {
       }
       if (actionLongPress) {
         if (prediksiResultCursor == 0) {
-          currentState = STATE_PREDIKSI_PROCESS; // Prediksi lagi
+          currentState = STATE_PREDIKSI_PROCESS;
         } else {
           setRgbColor(false, false, false);
-          currentState = STATE_MENU_UTAMA;      // Kembali ke menu
+          currentState = STATE_MENU_UTAMA;
         }
       }
       break;
@@ -606,7 +589,6 @@ void loop() {
       break;
 
     case STATE_DATA_SENDING:
-      // Di layar pengiriman, tahan 2s untuk selesai dan kembali
       if (actionLongPress || actionShortClick) {
         currentState = STATE_DATA_VIEW;
       }
@@ -614,10 +596,14 @@ void loop() {
 
     case STATE_AMBIL_DATA_LIVE:
       if (actionShortClick) {
-        ambilDataCursor = (ambilDataCursor + 1) % 2;
+        ambilDataCursor = (ambilDataCursor + 1) % 3;  // Siklus: 0 (Wadah) -> 1 (Rekam) -> 2 (Kembali)
       }
       if (actionLongPress) {
         if (ambilDataCursor == 0) {
+          // Ganti Wadah Sampel
+          currentSampleIdx = (currentSampleIdx + 1) % TOTAL_SAMPLE_IDS;
+        } else if (ambilDataCursor == 1) {
+          // Mulai 5-Burst Sampling
           currentState = STATE_AMBIL_DATA_BURST;
         } else {
           currentState = STATE_MENU_UTAMA;
@@ -626,14 +612,30 @@ void loop() {
       break;
 
     case STATE_AMBIL_DATA_BURST:
-      renderDisplay();
-      setRgbColor(false, false, true); // Indikator Biru aktif saat merekam
+      setRgbColor(false, false, true);  // LED Biru indikasi perekaman
 
-      // Rekam 5 data burst secara berurutan (1 detik per sampel)
       for (int i = 1; i <= 5; i++) {
         latestSuhu = readPT100Temperature();
         latestEcData = getCalibratedEC(latestSuhu);
         logBurstSample(i);
+
+        // Tampilan proses burst per detik di OLED
+        display.clearDisplay();
+        display.setTextSize(1);
+        display.setCursor(6, 4);
+        display.printf("REKAM: %s", SAMPLE_IDS[currentSampleIdx]);
+        display.drawLine(0, 14, 128, 14, SSD1306_WHITE);
+
+        display.setCursor(4, 20);
+        display.print("Jangan Angkat Probe!");
+        display.setCursor(4, 34);
+        display.printf("Burst : %d / 5", i);
+        display.setCursor(4, 46);
+        display.printf("Suhu  : %.2f C", latestSuhu);
+        display.setCursor(4, 56);
+        display.printf("EC25  : %.3f mS/cm", latestEcData.ec25);
+        display.display();
+
         delay(1000);
       }
 
