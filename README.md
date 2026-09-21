@@ -47,35 +47,72 @@ Sistem ini dirancang sebagai instrumen cerdas genggam (*Smart Handheld Milk Qual
 
 ### 3. Arsitektur Makro Sistem
 
-Diagram alir kerja (*Flowchart*) end-to-end memperlihatkan alur logika operasional dari sensor fisik, komputasi edge, penyimpanan lokal, hingga sinkronisasi awan:
+Diagram alir kerja (*Flowchart*) end-to-end diperbarui untuk mencerminkan sistem *offline-first* berbasis partisi Flash internal **LittleFS**, navigasi menu **Finite State Machine (FSM)**, dan interaksi **Dual-Action Button** (Klik: Navigasi, Tahan 2 Detik: Eksekusi):
 
 ```mermaid
 flowchart TD
-    A([Start: Power On & Inisialisasi ESP32-S3]) --> B[Mount MicroSD, Load Model TinyML INT8 ke SRAM]
-    B --> C[/Celupkan Probe ke Wadah Susu / Milk Can/]
-    C --> D[Jeda Stabilisasi Termal 3 Detik]
-    D --> E[Baca Sensor Suhu RTD PT100 via MAX31865: Durasi 0.1s]
-    E --> F[Eksitasi Pulsa AC & Baca ADC EC: Durasi 0.2s]
-    F --> G{Apakah Probe Terendam Susu?}
-    G -- Tidak --> H[/Display OLED: 'Probe di Luar Cairan'/] --> C
-    G -- Ya --> I[Kompensasi Termal Non-Linear: Hitung EC_25 & Delta EC Rate]
-    I --> J[Inferensi TinyML INT8 di SRAM ESP32-S3: Durasi <10ms]
-    J --> K{Evaluasi Status Mutu}
-    K -- Grade A --> L[LED Hijau Aktif]
-    K -- Grade B --> M[LED Kuning Aktif + Beep Buzzer Singkat]
-    K -- Grade C --> N[LED Merah Aktif + Alarm Buzzer Kontinu]
-    L & M & N --> O[/Tampilkan Status Grade & Sisa Waktu di OLED 0.96"/]
-    O --> P[(Simpan Payload JSON ke Antrean MicroSD via SPI)]
-    P --> Q{Apakah Sinyal Wi-Fi Terdeteksi?}
-    Q -- Tidak --> R([Standby: Siaga Pengujian Sesi Berikutnya])
-    Q -- Ya --> S[Baca Antrean MicroSD & Kirim Batch Payload via HTTP POST/MQTT]
-    S --> T{Apakah Server Merespon HTTP 200 OK?}
-    T -- Ya --> U[Hapus / Tandai Data Terkirim di MicroSD]
-    T -- Tidak --> R
-    U --> V[/Update Web Dashboard KUD: Peta Mutu & Early Warning Armada/]
-    V --> R
+    A([Start: Power On & Booting ESP32-S3]) --> B[Mount LittleFS Internal & Inisialisasi Sensor, OLED, LED RGB]
+    B --> C[Masuk ke STATE_MENU_UTAMA]
+    
+    C --> D{Interaksi Tombol GPIO 7}
+    D -- Klik Singkat < 2s --> C
+    D -- Tahan >= 2s --> E{Evaluasi Kursor Terpilih}
+
+    %% Cabang 1: Prediksi Susu
+    E -- Kursor 1: Prediksi Susu --> F[STATE_PREDIKSI_IDLE: Live Preview Suhu & EC25]
+    F --> G{Aksi Tombol}
+    G -- Klik Singkat --> F
+    G -- Tahan >= 2s: Opsi Kembali --> C
+    G -- Tahan >= 2s: Opsi Prediksi --> H[STATE_PREDIKSI_PROCESS: Jeda Stabilisasi & Baca Sensor]
+    H --> I[Eksekusi Inferensi TinyML INT8 di SRAM ESP32-S3: Durasi < 10ms]
+    I --> J[Aktifkan LED RGB Mutu: Hijau=A, Kuning=B, Merah=C]
+    J --> K[(Simpan Hasil Prediksi ke /prediksi_log.json di LittleFS)]
+    K --> L[STATE_PREDIKSI_RESULT: Tampilkan Status Grade & Sisa Waktu]
+    L --> M{Aksi Tombol}
+    M -- Klik Singkat --> L
+    M -- Tahan >= 2s: Opsi Prediksi Lagi --> H
+    M -- Tahan >= 2s: Opsi Kembali --> C
+
+    %% Cabang 2: Lihat & Kirim Data
+    E -- Kursor 2: Lihat & Kirim --> N[STATE_DATA_VIEW: Tampilkan Info Total Log di LittleFS]
+    N --> O{Aksi Tombol}
+    O -- Klik Singkat --> N
+    O -- Tahan >= 2s: Opsi Kembali --> C
+    O -- Tahan >= 2s: Opsi Kirim Data --> P[STATE_DATA_SENDING: Pindai Jaringan Wi-Fi Pos/Tethering]
+    P --> Q{Apakah Wi-Fi Terhubung?}
+    Q -- Gagal / Timeout --> N
+    Q -- Berhasil --> R[Kirim Batch Payload Telemetri via HTTP POST/MQTT]
+    R --> S{Apakah Server Merespon HTTP 200 OK?}
+    S -- Ya --> T[Bersihkan / Tandai Antrean Log di LittleFS]
+    S -- Tidak --> N
+    T --> U[/Update Dasbor KUD: Peta Sebaran Mutu & Early Warning Armada/]
+    U --> N
+
+    %% Cabang 3: Ambil Data Susu
+    E -- Kursor 3: Ambil Data Susu --> V[STATE_AMBIL_DATA_LIVE: Streaming Live Suhu & EC25]
+    V --> W{Aksi Tombol}
+    W -- Klik Singkat --> V
+    W -- Tahan >= 2s: Opsi Kembali --> C
+    W -- Tahan >= 2s: Opsi Rekam 5x --> X[STATE_AMBIL_DATA_BURST: Aktifkan LED Biru]
+    X --> Y[Akuisisi 5-Burst Sampling: 1 Baris per Detik]
+    Y --> Z[(Append Baris Mentah & EC25 ke /dataset_susu.csv di LittleFS)]
+    Z --> AA[Matikan LED Biru]
+    AA --> V
 
 ```
+
+#### Alur Operasional Pipeline:
+
+* **Inisialisasi & Partisi Flash Lokal:** Saat sistem menyala, ESP32-S3 memvalidasi partisi LittleFS untuk memastikan kesiapan berkas `/dataset_susu.csv` dan `/prediksi_log.json` sebelum masuk ke menu utama.
+
+
+* **Mode Prediksi Mutu (Edge Inference):** Pengujian susu dilakukan secara *on-demand* dengan komputasi mandiri di memori SRAM tanpa ketergantungan sinyal internet, memberikan *feedback* visual instan melalui OLED dan LED RGB serta pengarsipan riwayat prediksi ke Flash.
+
+
+* **Mode Pengambilan Dataset (R&D Lab Protocol):** Memfasilitasi perekaman *5-burst sampling* berurutan selama 5 detik ke berkas CSV internal untuk menangkap variasi mikroskopis sensor (*jitter augmentation*) saat pengambilan data di lapangan.
+
+
+* **Mode Sinkronisasi Asinkron (Batch Spooling):** Pengiriman data ke *cloud* KUD dijalankan secara sadar (*on-demand*) pada menu terpisah ketika perangkat berada di area yang terjangkau jaringan Wi-Fi, menghemat konsumsi daya baterai secara signifikan.
 
 ---
 
