@@ -16,8 +16,8 @@ const float V_IN = 3.3; // Tegangan operasional GPIO
 
 // Parameter Hasil Kalibrasi Dua Titik (Masukkan nilai riil yang diperoleh)
 
-const float CAL_SLOPE   = 2.157738;
-const float CAL_OFFSET  = -1.871534;
+const float CAL_SLOPE  = 2.204908;
+const float CAL_OFFSET = -2.276239;
 
 // Koefisien Normalisasi Suhu Susu Sapi (2.0% per °C)
 
@@ -159,7 +159,7 @@ void loop()
 
     // Nilai suhu referensi (gunakan nilai riil pembacaan saat integrasi dengan PT100)
 
-    float suhuUji = 26.5;
+    float suhuUji = 25.0;
 
     ECReading ecData = getCalibratedEC(suhuUji);
 
