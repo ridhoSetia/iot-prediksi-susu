@@ -338,13 +338,13 @@ Fungsi inferensi C++ dieksekusi secara instan:
 ```cpp
 predictMilkModel(in_suhu, in_rohm, in_ecraw, in_ec25,
                  resultGrade, resultShelfLifeMin, SHELF_MAX_MINUTES);
-```[cite: 2]
+```
 
 ---
 
 ## 5. FIRMWARE & FINITE STATE MACHINE (FSM)
 
-Firmware dirancang berbasis FSM non-blocking dengan navigasi satu tombol (*Single-Button Interface*) pada GPIO 7[cite: 2].
+Firmware dirancang berbasis FSM non-blocking dengan navigasi satu tombol (*Single-Button Interface*) pada GPIO 7.
 
 ```mermaid
 stateDiagram-v2
@@ -397,13 +397,13 @@ Setiap kali pengujian berhasil, data disimpan ke dalam berkas internal `/prediks
 
 ```json
 {"device_id":"FARMMERRY-001","alamat":"Farm Mery, Mugirejo, Kec. Sungai Pinang","latitude":-0.480724,"longitude":117.202154,"suhu":28.45,"grade":"GRADE_A","sisa_waktu_menit":175}
-```[cite: 2]
+```
 
 ### 6.2. Sinkronisasi Data ke Server KUD
-Saat pengguna memilih menu **Log & Kirim**, ESP32-S3 mengaktifkan modul Wi-Fi[cite: 2]:
-1. **WiFiManager Captive Portal:** Jika koneksi Wi-Fi belum terkonfigurasi, perangkat membentuk Access Point darurat bernama `MILK-SETUP` (IP: `192.168.4.1`) untuk memudahkan konfigurasi SSID/password via smartphone[cite: 2].
-2. **Pilihan Logistik Penjemputan:** Pengguna memilih metode distribusi: `DIJEMPUT` (armada KUD datang ke peternakan) atau `ANTAR` (peternak mengirim mandiri ke pos)[cite: 2].
-3. **HTTP POST Payload ke FastAPI:** Data dikirimkan ke endpoint `/api/predict-log`[cite: 2]:
+Saat pengguna memilih menu **Log & Kirim**, ESP32-S3 mengaktifkan modul Wi-Fi:
+1. **WiFiManager Captive Portal:** Jika koneksi Wi-Fi belum terkonfigurasi, perangkat membentuk Access Point darurat bernama `MILK-SETUP` (IP: `192.168.4.1`) untuk memudahkan konfigurasi SSID/password via smartphone.
+2. **Pilihan Logistik Penjemputan:** Pengguna memilih metode distribusi: `DIJEMPUT` (armada KUD datang ke peternakan) atau `ANTAR` (peternak mengirim mandiri ke pos).
+3. **HTTP POST Payload ke FastAPI:** Data dikirimkan ke endpoint `/api/predict-log`:
 
 ```json
 [
@@ -418,9 +418,9 @@ Saat pengguna memilih menu **Log & Kirim**, ESP32-S3 mengaktifkan modul Wi-Fi[ci
     "metode_pengiriman": "DIJEMPUT"
   }
 ]
-```[cite: 2]
+```
 
-Ketika server merespons dengan status kode HTTP `200 OK`, item log yang bersangkutan otomatis dihapus dari memori Flash LittleFS untuk menghemat ruang simpan[cite: 2].
+Ketika server merespons dengan status kode HTTP `200 OK`, item log yang bersangkutan otomatis dihapus dari memori Flash LittleFS untuk menghemat ruang simpan.
 
 ---
 
@@ -432,8 +432,8 @@ Ketika server merespons dengan status kode HTTP `200 OK`, item log yang bersangk
    cd "pelatihan/"
    source .venv/bin/activate
    jupyter notebook tiny-susu.ipynb
-   ```[cite: 1]
-2. Jalankan seluruh sel dari **Cell 1 hingga Cell 11**[cite: 1].
+   ```
+2. Jalankan seluruh sel dari **Cell 1 hingga Cell 11**.
 3. Jalankan sel ekspor C++ paling akhir untuk memperbarui berkas bobot `milk_model_weights.h`.
 
 ### 7.2. Kompilasi & Flash Firmware (Arduino IDE)
