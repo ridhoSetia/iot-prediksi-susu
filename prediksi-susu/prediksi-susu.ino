@@ -16,12 +16,12 @@
 // =================================================================
 // KONFIGURASI JARINGAN & BACKEND FASTAPI
 // =================================================================
-const char* FASTAPI_LOG_URL = "http://10.42.165.140:7000/api/predict-log";
+const char* FASTAPI_LOG_URL = "http://:7000/api/predict-log";
 
 const char* DEVICE_ID = "FARMMERRY-001";
-const char* ALAMAT_PETERNAK = "Farm Mery, Mugirejo, Kec. Sungai Pinang";
-const float LATITUDE_POS = -0.4807238341289421;
-const float LONGITUDE_POS = 117.20215448464293;
+const char* ALAMAT_PETERNAKAN = "Farm Mery, Mugirejo, Kec. Sungai Pinang";
+const float LATITUDE_PETERNAKAN = -0.4807238341289421;
+const float LONGITUDE_PETERNAKAN = 117.20215448464293;
 
 // =================================================================
 // KONSTANTA NORMALISASI INPUT
@@ -203,7 +203,7 @@ void logPredictionToFlash() {
   char buf[384];
   snprintf(buf, sizeof(buf),
            "{\"device_id\":\"%s\",\"alamat\":\"%s\",\"latitude\":%.6f,\"longitude\":%.6f,\"suhu\":%.2f,\"grade\":\"%s\",\"sisa_waktu_menit\":%d}",
-           DEVICE_ID, ALAMAT_PETERNAK, LATITUDE_POS, LONGITUDE_POS,
+           DEVICE_ID, ALAMAT_PETERNAKAN, LATITUDE_PETERNAKAN, LONGITUDE_PETERNAKAN,
            latestSuhu, resultGrade.c_str(), resultShelfLifeMin);
 
   dataFile.println(buf);
@@ -536,25 +536,36 @@ void renderDisplay() {
 // =================================================================
 void setup() {
   Serial.begin(115200);
-  delay(300);
+  delay(1000); // Beri jeda agar USB CDC terhubung stabil
+  Serial.println("\n\n====================================");
+  Serial.println("[BOOT] ESP32-S3 Sistem Prediksi Susu");
+  Serial.println("====================================");
 
   pinMode(BUTTON_PIN, INPUT_PULLDOWN);
   pinMode(PIN_LED_RED, OUTPUT);
   pinMode(PIN_LED_GREEN, OUTPUT);
   pinMode(PIN_LED_BLUE, OUTPUT);
   setRgbColor(false, false, false);
+  Serial.println("[OK] GPIO Tombol & LED Terinisialisasi");
 
   Wire.begin(OLED_SDA, OLED_SCL);
   Wire.setClock(100000);
   if (display.begin(SSD1306_SWITCHCAPVCC, 0x3C, false, false)) {
     display.clearDisplay();
     display.display();
+    Serial.println("[OK] OLED SSD1306 Siap");
+  } else {
+    Serial.println("[WARN] OLED Gagal Ditemukan di 0x3C!");
   }
 
   thermo.begin(MAX31865_2WIRE);
+  Serial.println("[OK] MAX31865 PT100 Siap");
 
   if (LittleFS.begin(true)) {
     isStorageReady = true;
+    Serial.println("[OK] Storage Flash LittleFS Terpasang");
+  } else {
+    Serial.println("[ERR] LittleFS Gagal Dimount!");
   }
 
   pinMode(PIN_DRIVE_A, OUTPUT);
@@ -564,6 +575,9 @@ void setup() {
   digitalWrite(PIN_DRIVE_B, LOW);
   analogReadResolution(12);
   analogSetAttenuation(ADC_11db);
+  Serial.println("[OK] Rangkaian AC Divider EC Siap");
+
+  Serial.println("[STATUS] Sistem Siap Digunakan. Masuk Menu Utama.");
 }
 
 void loop() {

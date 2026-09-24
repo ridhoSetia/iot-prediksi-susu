@@ -400,7 +400,7 @@ async def view_dashboard():
             <div class="grid-layout">
                 <div class="table-panel">
                     <div class="panel-header">
-                        <span>📋 Log Prediksi Mutu Peternak</span>
+                        <span>📋 Log Prediksi Mutu Peternakan</span>
                         <span id="logCounter" style="font-size:11px; color:#38bdf8;">0 Data Hari Ini</span>
                     </div>
                     <div class="table-scroll-area">
@@ -408,7 +408,7 @@ async def view_dashboard():
                             <thead>
                                 <tr>
                                     <th>ID</th>
-                                    <th>Peternak</th>
+                                    <th>Peternakan</th>
                                     <th>Alamat & Koordinat</th>
                                     <th>Suhu</th>
                                     <th>Sisa Waktu (Grade)</th>
@@ -469,7 +469,7 @@ async def view_dashboard():
             const markers = {{}};
             let activeRouteLayer = null;
 
-            async function navigasiKePeternak(lat, lon, deviceId, sisaWaktuGrade) {{
+            async function navigasiKePeternakan(lat, lon, deviceId, sisaWaktuGrade) {{
                 map.flyTo([lat, lon], 14);
                 if (markers[deviceId]) markers[deviceId].openPopup();
 
@@ -554,7 +554,7 @@ async def view_dashboard():
                     <td style="color:#94a3b8; font-size:11px;">${{item.created_at.split(' ')[1] || item.created_at}}</td>
                     <td>
                         <div class="btn-action-group">
-                            <button class="btn-nav" onclick="navigasiKePeternak(${{item.latitude}}, ${{item.longitude}}, '${{item.device_id}}', '${{sisaWaktuGradeText}}')">Rute</button>
+                            <button class="btn-nav" onclick="navigasiKePeternakan(${{item.latitude}}, ${{item.longitude}}, '${{item.device_id}}', '${{sisaWaktuGradeText}}')">Rute</button>
                         </div>
                     </td>
                 `;
@@ -670,7 +670,7 @@ async def view_dashboard():
                     pasangMarker(row);
                 }});
                 const newest = dbData[0];
-                navigasiKePeternak(newest.latitude, newest.longitude, newest.device_id, `${{newest.sisa_waktu_menit}}m (${{newest.grade}})`);
+                navigasiKePeternakan(newest.latitude, newest.longitude, newest.device_id, `${{newest.sisa_waktu_menit}}m (${{newest.grade}})`);
             }}
 
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -686,7 +686,7 @@ async def view_dashboard():
                         dbData.unshift(dataBaru);
                         tambahBarisTabel(dataBaru, true);
                         pasangMarker(dataBaru);
-                        navigasiKePeternak(dataBaru.latitude, dataBaru.longitude, dataBaru.device_id, `${{dataBaru.sisa_waktu_menit}}m (${{dataBaru.grade}})`);
+                        navigasiKePeternakan(dataBaru.latitude, dataBaru.longitude, dataBaru.device_id, `${{dataBaru.sisa_waktu_menit}}m (${{dataBaru.grade}})`);
                         refreshCharts();
                     }}
                 }}
