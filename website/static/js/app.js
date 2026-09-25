@@ -373,7 +373,7 @@ function pasangMarker(item) {
             <div class="text-slate-600">Logistik Truk: <b>${etaMenit}m</b> | Hasil: ${hasilBadge}</div>
             <div class="text-slate-600">Status: <b>${item.status || "PROSES"}</b></div>
             <div class="pt-1 mt-1 border-t border-slate-200">
-                <a href="${gmapsUrl}" target="_blank" class="text-sky-600 font-medium hover:underline">Google Maps &rarr;</a>
+                <a href="${gmapsUrl}" target="_blank" class="text-sky-600 font-medium hover:underline">Google Maps</a>
             </div>
         </div>
     `;
@@ -392,7 +392,7 @@ function pasangMarker(item) {
   }
 }
 
-// Fungsi Pembantu Visualisasi Perbandingan Waktu Sisa vs Masa Tempuh
+// Fungsi Pembantu Visualisasi Perbandingan Waktu Sisa vs Masa Tempuh (Minimalis & Fungsional)
 function renderRouteVisualComparison(distKm, durasiMenit, deviceId) {
   const item = dbData.find((d) => d.device_id === deviceId);
   if (!item) return;
@@ -401,55 +401,56 @@ function renderRouteVisualComparison(distKm, durasiMenit, deviceId) {
   const gr = eff.grade;
   const isC = eff.isRusak;
   const sisaMenit = eff.sisaWaktu;
+  const diff = sisaMenit - durasiMenit;
 
   const nameEl = document.getElementById("routeDestName");
   if (nameEl) {
-    nameEl.innerText = `${deviceId} ${item && item.alamat ? "• " + item.alamat : ""}`;
+    nameEl.innerText = `${deviceId}${item && item.alamat ? " • " + item.alamat : ""}`;
   }
-
-  const distEl = document.getElementById("routeDist");
-  if (distEl) distEl.innerText = `Jarak Tempuh: ${distKm} km`;
 
   const badgeGradeEl = document.getElementById("routeBadgeGrade");
   if (badgeGradeEl) {
     if (isC) {
       badgeGradeEl.className =
         "px-2 py-0.5 rounded text-[11px] font-bold border whitespace-nowrap bg-rose-100 text-rose-800 border-rose-300";
-      badgeGradeEl.innerText = `Grade C (${sisaMenit}m - Rusak)`;
+      badgeGradeEl.innerText = `Grade C (Rusak)`;
     } else if (gr === "B") {
       badgeGradeEl.className =
         "px-2 py-0.5 rounded text-[11px] font-bold border whitespace-nowrap bg-amber-100 text-amber-800 border-amber-300";
-      badgeGradeEl.innerText = `Grade B (${sisaMenit}m)`;
+      badgeGradeEl.innerText = `Grade B`;
     } else {
       badgeGradeEl.className =
         "px-2 py-0.5 rounded text-[11px] font-bold border whitespace-nowrap bg-emerald-100 text-emerald-800 border-emerald-300";
-      badgeGradeEl.innerText = `Grade A (${sisaMenit}m)`;
+      badgeGradeEl.innerText = `Grade A`;
     }
   }
 
   const shelfLifeEl = document.getElementById("routeShelfLife");
   if (shelfLifeEl) {
-    if (isC) {
-      shelfLifeEl.innerHTML = `<span class="text-rose-600 font-bold">${sisaMenit} Menit</span> <span class="text-[10px] text-rose-500 font-medium block">(Rusak)</span>`;
-    } else {
-      shelfLifeEl.innerText = `${sisaMenit} Menit`;
-    }
+    shelfLifeEl.className = isC
+      ? "font-bold text-xs text-rose-600 mt-0.5"
+      : gr === "B"
+        ? "font-bold text-xs text-amber-600 mt-0.5"
+        : "font-bold text-xs text-emerald-600 mt-0.5";
+    shelfLifeEl.innerText = `${sisaMenit}m`;
   }
 
   const etaEl = document.getElementById("routeEta");
   if (etaEl) {
-    etaEl.innerText = `${durasiMenit} Menit`;
+    etaEl.innerHTML = `${durasiMenit}m <span class="text-[10px] font-normal text-slate-400">(${distKm} km)</span>`;
   }
 
   const marginEl = document.getElementById("routeMargin");
-  const diff = sisaMenit - durasiMenit;
   if (marginEl) {
     if (isC) {
-      marginEl.innerHTML = `<span class="text-rose-600 font-bold">${diff >= 0 ? "+" + diff : diff} Menit (Rusak)</span>`;
-    } else if (diff >= 0) {
-      marginEl.innerHTML = `<span class="text-emerald-600 font-bold">+${diff} Menit</span>`;
+      marginEl.className = "font-bold text-xs text-rose-600 mt-0.5";
+      marginEl.innerText = `${diff >= 0 ? "+" + diff : diff}m`;
+    } else if (diff < 0) {
+      marginEl.className = "font-bold text-xs text-rose-600 mt-0.5";
+      marginEl.innerText = `${diff}m (Defisit)`;
     } else {
-      marginEl.innerHTML = `<span class="text-rose-600 font-bold">${diff} Menit</span>`;
+      marginEl.className = "font-bold text-xs text-emerald-600 mt-0.5";
+      marginEl.innerText = `+${diff}m (Aman)`;
     }
   }
 
@@ -457,40 +458,29 @@ function renderRouteVisualComparison(distKm, durasiMenit, deviceId) {
   if (resultEl) {
     if (isC) {
       resultEl.className =
-        "p-2.5 rounded-lg border text-xs bg-rose-100/90 border-rose-300 text-rose-950 shadow-xs";
-      resultEl.innerHTML = `
-        <div class="flex items-start gap-2">
-          <div>
-            <div class="font-bold text-xs uppercase tracking-wide text-rose-900">Hasil: Susu Rusak (Grade C)</div>
-            <div class="text-[11px] text-rose-800 mt-0.5 leading-snug">Susu peternakan ini telah melewati batas masa simpan (Rusak). Dilarang dicampur ke tangki utama KUD!</div>
-          </div>
-        </div>
-      `;
+        "text-[11px] px-2.5 py-1.5 rounded-lg border bg-rose-50 border-rose-200 text-rose-800 font-medium leading-tight";
+      resultEl.innerHTML = `Melewati masa simpan — Jangan dicampur ke tangki KUD`;
     } else if (diff < 0) {
       resultEl.className =
-        "p-2.5 rounded-lg border text-xs bg-amber-100/90 border-amber-300 text-amber-950 shadow-xs";
-      resultEl.innerHTML = `
-        <div class="flex items-start gap-2">
-          <span class="text-base leading-none">⚠️</span>
-          <div>
-            <div class="font-bold text-xs uppercase tracking-wide text-amber-900">Hasil: Berisiko Rusak di Perjalanan</div>
-            <div class="text-[11px] text-amber-800 mt-0.5 leading-snug">Estimasi truk tiba (${durasiMenit}m) melebihi masa simpan susu (${sisaMenit}m). Defisit ${Math.abs(diff)} menit, butuh tindakan prioritas armada!</div>
-          </div>
-        </div>
-      `;
+        "text-[11px] px-2.5 py-1.5 rounded-lg border bg-amber-50 border-amber-200 text-amber-800 font-medium leading-tight";
+      resultEl.innerHTML = `Defisit ${Math.abs(diff)} menit — Truk berisiko tiba setelah susu turun mutu`;
     } else {
       resultEl.className =
-        "p-2.5 rounded-lg border text-xs bg-emerald-100/90 border-emerald-300 text-emerald-950 shadow-xs";
-      resultEl.innerHTML = `
-        <div class="flex items-start gap-2">
-          <div>
-            <div class="font-bold text-xs uppercase tracking-wide text-emerald-900">Hasil: Aman Tiba di KUD</div>
-            <div class="text-[11px] text-emerald-800 mt-0.5 leading-snug">Truk tiba dalam ${durasiMenit} menit sebelum mutu susu turun. Surplus margin aman logistik: +${diff} menit.</div>
-          </div>
-        </div>
-      `;
+        "text-[11px] px-2.5 py-1.5 rounded-lg border bg-emerald-50 border-emerald-200 text-emerald-800 font-medium leading-tight";
+      resultEl.innerHTML = `Pengiriman aman — Truk tiba ${diff} menit sebelum batas mutu turun`;
     }
   }
+}
+
+// Fungsi Tutup Box Rute
+function tutupRouteInfoBox() {
+  const box = document.getElementById("routeInfoBox");
+  if (box) box.classList.add("hidden");
+  if (activeRouteLayer) {
+    map.removeLayer(activeRouteLayer);
+    activeRouteLayer = null;
+  }
+  selectedDeviceId = null;
 }
 
 // Navigasi & Rute ke Peternakan
@@ -785,7 +775,7 @@ function renderTabel(data, highlightedId = null) {
                Rute
            </button>
            <button type="button" disabled class="w-full bg-emerald-50 border border-emerald-200 text-emerald-700 py-0.5 px-1 rounded text-[10px] font-medium leading-tight cursor-default opacity-90 text-center">
-               Selesai ✓
+               Selesai
            </button>
          </div>`
       : `<div class="flex flex-col gap-1 w-16 mx-auto py-0.5">

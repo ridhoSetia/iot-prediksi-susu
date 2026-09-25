@@ -5,7 +5,6 @@
 #include <LittleFS.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
-#include <WiFiManager.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_MAX31865.h>
@@ -14,9 +13,12 @@
 #include "milk_model_weights.h"
 
 // =================================================================
-// KONFIGURASI JARINGAN & BACKEND FASTAPI
+// KONFIGURASI WI-FI & BACKEND FASTAPI
 // =================================================================
-const char* FASTAPI_LOG_URL = "http://10.42.165.140:7000/api/predict-log";
+const char* WIFI_SSID = "Aspa"; 
+const char* WIFI_PASSWORD = "22222222";
+
+const char* FASTAPI_LOG_URL = "http://10.124.199.140:7000/api/predict-log";
 
 const char* DEVICE_ID = "FARMMERRY-001";
 const char* ALAMAT_PETERNAKAN = "Farm Mery, Mugirejo, Kec. Sungai Pinang";
@@ -261,7 +263,7 @@ void rewritePredListToFlash() {
 }
 
 // =================================================================
-// 3. SINKRONISASI FASTAPI
+// 3. SINKRONISASI FASTAPI (WIFI STATIS)
 // =================================================================
 void showSendStatus(const char* l1, const char* l2, const char* l3) {
   display.clearDisplay();
@@ -280,51 +282,43 @@ void showSendStatus(const char* l1, const char* l2, const char* l3) {
   display.display();
 }
 
-bool connectWiFiWithManager() {
-  showSendStatus("1. Cek Wi-Fi...", "Mencari jaringan", "yang tersimpan...");
+bool connectStaticWiFi() {
+  showSendStatus("Menghubungkan...", WIFI_SSID, "Harap tunggu...");
   setRgbColor(false, false, true);
 
-  WiFiManager wm;
-  wm.setConfigPortalTimeout(180);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
-  wm.setAPCallback([](WiFiManager* myWiFiManager) {
-    setRgbColor(true, true, false);
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
-    display.setCursor(8, 0);
-    display.print("WIFI TIDAK ADA!");
-    display.drawLine(0, 9, 128, 9, SSD1306_WHITE);
-    display.setCursor(0, 14);
-    display.print("1. Konek Wi-Fi HP:");
-    display.setCursor(0, 24);
-    display.print("   SSID: MILK-SETUP");
-    display.setCursor(0, 36);
-    display.print("2. Buka Browser HP:");
-    display.setCursor(0, 46);
-    display.print("   IP: 192.168.4.1");
-    display.drawLine(0, 55, 128, 55, SSD1306_WHITE);
-    display.display();
-  });
+  unsigned long startAttemptTime = millis();
+  const unsigned long WIFI_TIMEOUT_MS = 15000;  // Batas timeout 15 detik
 
-  bool res = wm.autoConnect("MILK-SETUP");
-  if (!res) {
+  while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < WIFI_TIMEOUT_MS) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println();
+
+  if (WiFi.status() != WL_CONNECTED) {
     setRgbColor(true, false, false);
-    showSendStatus("Gagal Terhubung!", "Waktu Habis", "Kembali ke Menu");
+    showSendStatus("Gagal Terhubung!", "Cek SSID / Sandi", "Kembali ke Menu");
     delay(2000);
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
     setRgbColor(false, false, false);
     return false;
   }
+
+  setRgbColor(false, true, false);
+  showSendStatus("Wi-Fi Terhubung!", WiFi.localIP().toString().c_str(), "Siap kirim data...");
+  delay(1000);
   return true;
 }
 
 void sendSinglePrediction(int index, const char* deliveryMode) {
   if (index < 0 || index >= predList.size()) return;
-  if (!connectWiFiWithManager()) return;
+  if (!connectStaticWiFi()) return;
 
-  showSendStatus("2. Kirim JSON...", "Ke Web FastAPI", deliveryMode);
+  showSendStatus("Mengirim JSON...", "Ke Web FastAPI", deliveryMode);
 
   PredItem item = predList[index];
   char rowBuf[450];
@@ -645,17 +639,14 @@ void loop() {
           setRgbColor(true, false, false);
           Serial.println("[PREDIKSI] Gagal: Probe kering / tidak terendam. Data TIDAK disimpan ke Flash.");
         } else {
-          // Normalisasi Min-Max
           float in_suhu = (latestSuhu - MIN_0) * SCALE_0;
           float in_rohm = (latestEcData.resistance - MIN_1) * SCALE_1;
           float in_ecraw = (latestEcData.ecRaw - MIN_2) * SCALE_2;
           float in_ec25 = (latestEcData.ec25 - MIN_3) * SCALE_3;
 
-          // Eksekusi Inferensi C++ Murni (Latensi < 1 ms)
           predictMilkModel(in_suhu, in_rohm, in_ecraw, in_ec25,
                            resultGrade, resultShelfLifeMin, SHELF_MAX_MINUTES);
 
-          // LED Feedback
           if (resultGrade == "GRADE_A") setRgbColor(false, true, false);
           else if (resultGrade == "GRADE_B") setRgbColor(true, true, false);
           else setRgbColor(true, false, false);

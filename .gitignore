@@ -1,6 +1,8 @@
 *.pdf
 sapi.ino
-pelatihan/.venv
+*.venv
 __pycache__/
 *.pyc
 *.zip
+*.docx
+*.mp4
