@@ -353,11 +353,11 @@ function pasangMarker(item) {
 
   let hasilBadge = "";
   if (isC) {
-    hasilBadge = `<span class="text-rose-700 font-bold bg-rose-100 px-1.5 py-0.5 rounded border border-rose-300">⛔ RUSAK (${diff >= 0 ? "+" + diff : diff}m)</span>`;
+    hasilBadge = `<span class="text-rose-700 font-bold bg-rose-100 px-1.5 py-0.5 rounded border border-rose-300">RUSAK (${diff >= 0 ? "+" + diff : diff}m)</span>`;
   } else if (diff < 0) {
-    hasilBadge = `<span class="text-rose-700 font-bold bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">⚠️ Kritis (Defisit ${Math.abs(diff)}m)</span>`;
+    hasilBadge = `<span class="text-rose-700 font-bold bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">Kritis (Defisit ${Math.abs(diff)}m)</span>`;
   } else {
-    hasilBadge = `<span class="text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">✓ Aman (Surplus +${diff}m)</span>`;
+    hasilBadge = `<span class="text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">Aman (Surplus +${diff}m)</span>`;
   }
 
   const gradeDisplay = isC
@@ -460,7 +460,6 @@ function renderRouteVisualComparison(distKm, durasiMenit, deviceId) {
         "p-2.5 rounded-lg border text-xs bg-rose-100/90 border-rose-300 text-rose-950 shadow-xs";
       resultEl.innerHTML = `
         <div class="flex items-start gap-2">
-          <span class="text-base leading-none">⛔</span>
           <div>
             <div class="font-bold text-xs uppercase tracking-wide text-rose-900">Hasil: Susu Rusak (Grade C)</div>
             <div class="text-[11px] text-rose-800 mt-0.5 leading-snug">Susu peternakan ini telah melewati batas masa simpan (Rusak). Dilarang dicampur ke tangki utama KUD!</div>
@@ -484,7 +483,6 @@ function renderRouteVisualComparison(distKm, durasiMenit, deviceId) {
         "p-2.5 rounded-lg border text-xs bg-emerald-100/90 border-emerald-300 text-emerald-950 shadow-xs";
       resultEl.innerHTML = `
         <div class="flex items-start gap-2">
-          <span class="text-base leading-none">✅</span>
           <div>
             <div class="font-bold text-xs uppercase tracking-wide text-emerald-900">Hasil: Aman Tiba di KUD</div>
             <div class="text-[11px] text-emerald-800 mt-0.5 leading-snug">Truk tiba dalam ${durasiMenit} menit sebelum mutu susu turun. Surplus margin aman logistik: +${diff} menit.</div>

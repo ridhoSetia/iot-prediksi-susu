@@ -128,10 +128,6 @@
                 <div class="md:col-span-8 bg-white rounded-lg border border-slate-200 shadow-sm p-4 flex flex-col h-[280px]">
                     <div class="flex items-center justify-between mb-2">
                         <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500">Sisa Masa Simpan vs Waktu Tempuh (Menit)</h3>
-                        <div class="flex items-center gap-1.5 text-[10px]">
-                            <span class="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">✓ Aman (Sisa &gt; ETA)</span>
-                            <span class="px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200 font-medium">⛔ Rusak (Grade C)</span>
-                        </div>
                     </div>
                     <div class="relative flex-1 min-h-0">
                         <canvas id="urgencyBarChart"></canvas>
@@ -178,9 +174,9 @@
     </div>
 
     <script>
-        let dbData = {{ logs_json | safe }};
-        const kudInfo = {{ kud_json | safe }};
-        const currentFilterDate = "{{ tgl_hari_ini }}";
+        let dbData = {{ logs_json | safe if logs_json else "[]" }};
+        const kudInfo = {{ kud_json | safe if kud_json else '{"lat": -0.480810816247826, "lon": 117.15546525804818, "nama": "Pos KUD Penampungan Susu"}' }};
+        const currentFilterDate = "{{ tgl_hari_ini or '' }}";
     </script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="/static/js/app.js"></script>
