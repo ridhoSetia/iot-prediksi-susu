@@ -1,3 +1,5 @@
 *.pdf
 sapi.ino
 pelatihan/.venv
+__pycache__/
+*.pyc

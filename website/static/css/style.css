@@ -1,0 +1,36 @@
+/* Custom Scrollbar agar tidak kaku */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: #f8fafc;
+}
+::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+/* Highlight animasi lembut saat ada telemetry baru masuk */
+.row-new-highlight {
+    animation: softHighlight 2.5s ease-out;
+}
+
+@keyframes softHighlight {
+    0% {
+        background-color: #f0fdf4;
+    }
+    100% {
+        background-color: transparent;
+    }
+}
+
+/* Custom styling leaflet popup */
+.leaflet-popup-content-wrapper {
+    border-radius: 6px;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    border: 1px solid #e2e8f0;
+}

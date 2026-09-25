@@ -16,7 +16,7 @@
 // =================================================================
 // KONFIGURASI JARINGAN & BACKEND FASTAPI
 // =================================================================
-const char* FASTAPI_LOG_URL = "http://:7000/api/predict-log";
+const char* FASTAPI_LOG_URL = "http://10.42.165.140:7000/api/predict-log";
 
 const char* DEVICE_ID = "FARMMERRY-001";
 const char* ALAMAT_PETERNAKAN = "Farm Mery, Mugirejo, Kec. Sungai Pinang";
@@ -196,7 +196,8 @@ float readPT100Temperature() {
 }
 
 void logPredictionToFlash() {
-  if (!isStorageReady) return;
+  if (!isStorageReady || !latestEcData.isSubmerged || resultGrade == "KERING") return;
+
   File dataFile = LittleFS.open("/prediksi_log.json", FILE_APPEND);
   if (!dataFile) return;
 
@@ -510,12 +511,23 @@ void renderDisplay() {
       display.setCursor(24, 0);
       display.print("HASIL ANALISIS");
       display.drawLine(0, 9, 128, 9, SSD1306_WHITE);
-      display.setCursor(0, 14);
-      display.printf("Status: %s", resultGrade.c_str());
-      display.setCursor(0, 25);
-      display.printf("Sisa  : %d Menit", resultShelfLifeMin);
-      display.setCursor(0, 36);
-      display.printf("T:%.1fC EC25:%.2f", latestSuhu, latestEcData.ec25);
+
+      if (resultGrade == "KERING") {
+        display.setCursor(0, 14);
+        display.print("Status: GAGAL (KERING)");
+        display.setCursor(0, 26);
+        display.print("Probe tdk terendam!");
+        display.setCursor(0, 38);
+        display.print("Data tdk disimpan");
+      } else {
+        display.setCursor(0, 14);
+        display.printf("Status: %s", resultGrade.c_str());
+        display.setCursor(0, 25);
+        display.printf("Sisa  : %d Menit", resultShelfLifeMin);
+        display.setCursor(0, 36);
+        display.printf("T:%.1fC EC25:%.2f", latestSuhu, latestEcData.ec25);
+      }
+
       display.drawLine(0, 48, 128, 48, SSD1306_WHITE);
       display.setCursor(2, 53);
       display.print(prediksiResultCursor == 0 ? "[*Prediksi] [Kembali]" : "[Prediksi] [*Kembali]");
@@ -536,7 +548,7 @@ void renderDisplay() {
 // =================================================================
 void setup() {
   Serial.begin(115200);
-  delay(1000); // Beri jeda agar USB CDC terhubung stabil
+  delay(1000);
   Serial.println("\n\n====================================");
   Serial.println("[BOOT] ESP32-S3 Sistem Prediksi Susu");
   Serial.println("====================================");
@@ -631,6 +643,7 @@ void loop() {
           resultGrade = "KERING";
           resultShelfLifeMin = 0;
           setRgbColor(true, false, false);
+          Serial.println("[PREDIKSI] Gagal: Probe kering / tidak terendam. Data TIDAK disimpan ke Flash.");
         } else {
           // Normalisasi Min-Max
           float in_suhu = (latestSuhu - MIN_0) * SCALE_0;
@@ -646,9 +659,11 @@ void loop() {
           if (resultGrade == "GRADE_A") setRgbColor(false, true, false);
           else if (resultGrade == "GRADE_B") setRgbColor(true, true, false);
           else setRgbColor(true, false, false);
+
+          logPredictionToFlash();
+          Serial.printf("[PREDIKSI] Berhasil: %s (%d menit). Disimpan ke LittleFS.\n", resultGrade.c_str(), resultShelfLifeMin);
         }
 
-        logPredictionToFlash();
         prediksiResultCursor = 0;
         currentState = STATE_PREDIKSI_RESULT;
         break;
