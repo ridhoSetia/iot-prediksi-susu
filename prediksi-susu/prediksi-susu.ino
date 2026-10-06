@@ -15,8 +15,8 @@
 // =================================================================
 // KONFIGURASI WI-FI & BACKEND FASTAPI
 // =================================================================
-const char* WIFI_SSID = "Aspa"; 
-const char* WIFI_PASSWORD = "22222222";
+const char* WIFI_SSID = "Gada Kuota";
+const char* WIFI_PASSWORD = "1234567891011";
 
 const char* FASTAPI_LOG_URL = "http://10.124.199.140:7000/api/predict-log";
 

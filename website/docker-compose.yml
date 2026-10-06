@@ -1,0 +1,41 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: iot-prediksi-susu-web
+    restart: unless-stopped
+    command: uvicorn main:app --host 0.0.0.0 --port 7000 --reload --reload-dir /app
+    volumes:
+      # Live-reload: Mount kode dari host ke container
+      - ./:/app
+      # Isolasi virtual environment agar tidak bentrok dengan host
+      - /app/.venv
+      # Persistensi database SQLite
+      - ./milk_predictions.db:/app/milk_predictions.db
+    environment:
+      - DB_PATH=/app/milk_predictions.db
+    ports:
+      # Akses langsung ke FastAPI (opsional/development)
+      - "${APP_PORT:-7000}:7000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:7000/')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  nginx:
+    image: nginx:alpine
+    container_name: iot-prediksi-susu-nginx
+    restart: unless-stopped
+    ports:
+      # Akses utama website melalui Nginx reverse proxy
+      - "${PORT:-80}:80"
+    volumes:
+      # Mount konfigurasi Nginx
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # Static assets dilayani langsung oleh Nginx
+      - ./static:/app/static:ro
+    depends_on:
+      - web

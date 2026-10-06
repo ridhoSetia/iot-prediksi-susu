@@ -21,7 +21,7 @@ except Exception as e:
 # =================================================================
 # 1. INISIALISASI DATABASE & KONSTANTA KUD
 # =================================================================
-DB_FILE = "milk_predictions.db"
+DB_FILE = os.getenv("DB_PATH", "milk_predictions.db")
 
 KUD_LAT = -0.480810816247826
 KUD_LON = 117.15546525804818
