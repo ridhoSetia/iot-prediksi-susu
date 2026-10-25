@@ -7,8 +7,8 @@
     
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="/static/css/style.css">
-    <!-- Chart.js -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- ApexCharts -->
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 </head>
 <body class="bg-slate-100 text-slate-800 antialiased min-h-screen flex flex-col md:flex-row">
     
@@ -63,23 +63,59 @@
 
         <main class="p-4 sm:p-6 max-w-7xl w-full space-y-6">
             
-            <!-- Visualisasi Analisis Riwayat -->
-            <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
-                <!-- Grafik 1: Tren Suhu Susu -->
-                <div class="lg:col-span-6 bg-white rounded-lg border border-slate-200 shadow-sm p-4 flex flex-col h-[280px]">
-                    <div class="flex items-center justify-between mb-2">
-                        <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500">Tren Suhu Pengiriman Susu (°C)</h3>
+            <!-- Ringkasan Kartu KPI Riwayat -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-4 flex flex-col justify-between">
+                    <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Total Arsip Setoran</span>
+                    <div class="mt-2 flex items-baseline justify-between">
+                        <span class="text-2xl font-bold text-slate-900" id="kpiTotal">{{ history_logs|length }}</span>
+                        <span class="text-xs text-slate-400 font-medium">Batch Susu</span>
                     </div>
-                    <div class="relative flex-1 min-h-0">
-                        <canvas id="tempTrendChart"></canvas>
+                </div>
+                <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-4 flex flex-col justify-between">
+                    <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Lolos Mutu (A & B)</span>
+                    <div class="mt-2 flex items-baseline justify-between">
+                        <span class="text-2xl font-bold text-emerald-600" id="kpiLolos">-</span>
+                        <span class="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded" id="kpiLolosPct">-</span>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-4 flex flex-col justify-between">
+                    <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Tingkat Rusak (Grade C)</span>
+                    <div class="mt-2 flex items-baseline justify-between">
+                        <span class="text-2xl font-bold text-rose-600" id="kpiRusak">-</span>
+                        <span class="text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded" id="kpiRusakPct">-</span>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-4 flex flex-col justify-between">
+                    <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Sukses Tiba di KUD</span>
+                    <div class="mt-2 flex items-baseline justify-between">
+                        <span class="text-2xl font-bold text-sky-600" id="kpiSelesai">-</span>
+                        <span class="text-xs font-semibold text-sky-700 bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded" id="kpiSelesaiPct">-</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Visualisasi Analisis Riwayat Mutu -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                <!-- Grafik 1: Proporsi Kualitas Keseluruhan (Donut Chart) -->
+                <div class="lg:col-span-4 bg-white rounded-lg border border-slate-200 shadow-sm p-4 flex flex-col h-[320px]">
+                    <div class="mb-2">
+                        <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-700">Proporsi Kelayakan Mutu</h3>
+                        <p class="text-[11px] text-slate-400">Rasio penerimaan susu layak olah vs susu rusak</p>
+                    </div>
+                    <div class="relative flex-1 min-h-0 flex items-center justify-center">
+                        <div id="overallGradeDonutChart" class="w-full"></div>
                     </div>
                 </div>
 
-                <!-- Grafik 2: Rekap Mutu per Peternakan -->
-                <div class="lg:col-span-6 bg-white rounded-lg border border-slate-200 shadow-sm p-4 flex flex-col h-[280px]">
-                    <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Distribusi Mutu per Peternakan</h3>
+                <!-- Grafik 2: Rasio Kepatuhan Mutu per Pos Penampungan (100% Stacked Bar) -->
+                <div class="lg:col-span-8 bg-white rounded-lg border border-slate-200 shadow-sm p-4 flex flex-col h-[320px]">
+                    <div class="mb-2">
+                        <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-700">Kepatuhan Mutu per Pos Penampungan (100%)</h3>
+                        <p class="text-[11px] text-slate-400">Evaluasi persentase mutu dan tingkat reject tiap pos penampungan</p>
+                    </div>
                     <div class="relative flex-1 min-h-0">
-                        <canvas id="farmGradeChart"></canvas>
+                        <div id="farmGradeNormalizedChart" class="w-full h-full"></div>
                     </div>
                 </div>
             </div>
@@ -87,19 +123,18 @@
             <!-- Tabel Riwayat Log -->
             <div class="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
                 <div class="p-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-50/70">
-                    <span class="text-xs font-semibold text-slate-700">Daftar Arsip Pengiriman</span>
+                    <span class="text-xs font-semibold text-slate-700">Daftar Arsip Pengiriman Pos Penampungan</span>
                     <span class="text-xs text-slate-500">{{ history_logs|length }} Data Ditemukan</span>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="w-full border-collapse text-left text-xs min-w-[760px]">
                         <thead class="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
                             <tr>
-                                <th class="py-3 px-4">Waktu Input</th>
-                                <th class="py-3 px-4">Device</th>
-                                <th class="py-3 px-4">Alamat Peternakan</th>
-                                <th class="py-3 px-4 text-right">Suhu</th>
+                                <th class="py-3 px-4">Waktu Perah / Sync</th>
+                                <th class="py-3 px-4">ID Alat / Peternak</th>
+                                <th class="py-3 px-4">Lokasi Pos Penampungan</th>
+                                <th class="py-3 px-4 text-right">Suhu Perah</th>
                                 <th class="py-3 px-4">Grade (Masa Simpan)</th>
-                                <th class="py-3 px-4">Metode</th>
                                 <th class="py-3 px-4">Status Akhir</th>
                             </tr>
                         </thead>
@@ -119,27 +154,20 @@
                                     </span>
                                 </td>
                                 <td class="py-3 px-4 whitespace-nowrap">
-                                    <span class="px-2 py-0.5 rounded text-[11px] font-medium 
-                                        {% if 'JEMPUT' in log.metode_pengiriman %} bg-blue-50 text-blue-700 border border-blue-200
-                                        {% else %} bg-slate-100 text-slate-700 border border-slate-200 {% endif %}">
-                                        {{ log.metode_pengiriman }}
-                                    </span>
-                                </td>
-                                <td class="py-3 px-4 whitespace-nowrap">
                                     {% if log.status == 'SELESAI' %}
                                     <span class="inline-flex items-center text-emerald-700 text-[11px] font-medium bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                                        <span class="h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5"></span>Tiba di KUD
+                                        <span class="h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5"></span>Tiba di Pusat KUD
                                     </span>
                                     {% else %}
                                     <span class="inline-flex items-center text-slate-500 text-[11px] font-medium bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                                        <span class="h-1.5 w-1.5 rounded-full bg-slate-400 mr-1.5"></span>Dalam Proses
+                                        <span class="h-1.5 w-1.5 rounded-full bg-slate-400 mr-1.5"></span>Menunggu Dijemput
                                     </span>
                                     {% endif %}
                                 </td>
                             </tr>
                             {% else %}
                             <tr>
-                                <td colspan="7" class="py-12 text-center text-slate-400">
+                                <td colspan="6" class="py-12 text-center text-slate-400">
                                     Tidak ada data riwayat pengiriman untuk rentang waktu ini.
                                 </td>
                             </tr>
@@ -151,7 +179,7 @@
         </main>
     </div>
 
-    <!-- Script Chart Riwayat -->
+    <!-- Script Chart Riwayat Mutu -->
     <script>
         const historyData = {{ history_logs | tojson }};
 
@@ -164,90 +192,197 @@
             return 'UNKNOWN';
         }
 
-        // Urutkan data secara kronologis (lampau -> terbaru) untuk garis waktu
-        const sortedHistory = [...historyData].reverse();
-
-        // 1. Line Chart: Fluktuasi Suhu
-        const tempLabels = sortedHistory.map(d => (d.created_at || '').split(' ')[1] || d.created_at);
-        const tempData = sortedHistory.map(d => d.suhu);
-
-        const ctxLine = document.getElementById('tempTrendChart').getContext('2d');
-        new Chart(ctxLine, {
-            type: 'line',
-            data: {
-                labels: tempLabels.length > 0 ? tempLabels : ['-'],
-                datasets: [{
-                    label: 'Suhu (°C)',
-                    data: tempData.length > 0 ? tempData : [0],
-                    borderColor: '#0284c7',
-                    backgroundColor: 'rgba(2, 132, 199, 0.08)',
-                    fill: true,
-                    tension: 0.35,
-                    borderWidth: 2,
-                    pointRadius: 3,
-                    pointBackgroundColor: '#0284c7'
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    x: { grid: { display: false }, ticks: { font: { size: 10 } } },
-                    y: { 
-                        grid: { color: '#f1f5f9' },
-                        ticks: { font: { size: 10 }, callback: v => `${v}°C` }
-                    }
-                },
-                plugins: {
-                    legend: { display: false }
-                }
-            }
-        });
-
-        // 2. Bar Chart: Persebaran Mutu per Peternakan
+        // 1. Hitung Kartu KPI
+        let countA = 0, countB = 0, countC = 0, countSelesai = 0;
         const farmMap = {};
+
         historyData.forEach(d => {
-            const dev = d.device_id;
-            if (!farmMap[dev]) {
-                farmMap[dev] = { A: 0, B: 0, C: 0 };
-            }
             const gr = getCleanGrade(d.grade);
+            if (gr === 'A') countA++;
+            else if (gr === 'B') countB++;
+            else if (gr === 'C') countC++;
+
+            if ((d.status || '').toUpperCase() === 'SELESAI') {
+                countSelesai++;
+            }
+
+            const dev = d.device_id || 'UNKNOWN';
+            if (!farmMap[dev]) {
+                farmMap[dev] = { A: 0, B: 0, C: 0, total: 0 };
+            }
             if (farmMap[dev][gr] !== undefined) {
                 farmMap[dev][gr]++;
+                farmMap[dev].total++;
             }
         });
 
+        const totalBatch = historyData.length;
+        const lolosCount = countA + countB;
+        const lolosPct = totalBatch > 0 ? ((lolosCount / totalBatch) * 100).toFixed(1) : '0.0';
+        const rusakPct = totalBatch > 0 ? ((countC / totalBatch) * 100).toFixed(1) : '0.0';
+        const selesaiPct = totalBatch > 0 ? ((countSelesai / totalBatch) * 100).toFixed(1) : '0.0';
+
+        const elKpiLolos = document.getElementById('kpiLolos');
+        if (elKpiLolos) elKpiLolos.innerText = lolosCount;
+        const elKpiLolosPct = document.getElementById('kpiLolosPct');
+        if (elKpiLolosPct) elKpiLolosPct.innerText = `${lolosPct}%`;
+
+        const elKpiRusak = document.getElementById('kpiRusak');
+        if (elKpiRusak) elKpiRusak.innerText = countC;
+        const elKpiRusakPct = document.getElementById('kpiRusakPct');
+        if (elKpiRusakPct) elKpiRusakPct.innerText = `${rusakPct}%`;
+
+        const elKpiSelesai = document.getElementById('kpiSelesai');
+        if (elKpiSelesai) elKpiSelesai.innerText = countSelesai;
+        const elKpiSelesaiPct = document.getElementById('kpiSelesaiPct');
+        if (elKpiSelesaiPct) elKpiSelesaiPct.innerText = `${selesaiPct}%`;
+
+        // 2. Chart 1: Donut Proporsi Mutu Keseluruhan
+        const donutOptions = {
+            chart: {
+                type: 'donut',
+                height: 250,
+                fontFamily: 'Inter, sans-serif',
+                toolbar: { show: false }
+            },
+            series: totalBatch > 0 ? [countA, countB, countC] : [],
+            labels: ['Grade A (Segar)', 'Grade B (Proses Cepat)', 'Grade C (Rusak)'],
+            colors: ['#10b981', '#f59e0b', '#f43f5e'],
+            stroke: {
+                show: true,
+                colors: ['#ffffff'],
+                width: 2
+            },
+            plotOptions: {
+                pie: {
+                    donut: {
+                        size: '68%',
+                        labels: {
+                            show: true,
+                            total: {
+                                show: true,
+                                label: 'Total Susu',
+                                fontSize: '11px',
+                                fontFamily: 'Inter, sans-serif',
+                                fontWeight: 600,
+                                color: '#64748b',
+                                formatter: function () {
+                                    return totalBatch + ' Batch';
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            dataLabels: {
+                enabled: false
+            },
+            legend: {
+                position: 'bottom',
+                fontSize: '11px',
+                fontFamily: 'Inter, sans-serif',
+                markers: { width: 10, height: 10, radius: 2 }
+            },
+            tooltip: {
+                y: {
+                    formatter: function (val) {
+                        const pct = totalBatch > 0 ? ((val / totalBatch) * 100).toFixed(1) : 0;
+                        return `${val} Batch (${pct}%)`;
+                    }
+                }
+            },
+            noData: {
+                text: 'Belum ada data riwayat',
+                align: 'center',
+                verticalAlign: 'middle',
+                style: { color: '#64748b', fontSize: '12px' }
+            }
+        };
+
+        const donutEl = document.getElementById('overallGradeDonutChart');
+        if (donutEl) {
+            const overallDonutChart = new ApexCharts(donutEl, donutOptions);
+            overallDonutChart.render();
+        }
+
+        // 3. Chart 2: 100% Normalized Stacked Bar Kepatuhan Mutu per Pos Penampungan
         const farmLabels = Object.keys(farmMap);
         const dataA = farmLabels.map(f => farmMap[f].A);
         const dataB = farmLabels.map(f => farmMap[f].B);
         const dataC = farmLabels.map(f => farmMap[f].C);
 
-        const ctxBar = document.getElementById('farmGradeChart').getContext('2d');
-        new Chart(ctxBar, {
-            type: 'bar',
-            data: {
-                labels: farmLabels.length > 0 ? farmLabels : ['-'],
-                datasets: [
-                    { label: 'Grade A', data: dataA, backgroundColor: '#10b981', borderRadius: 3 },
-                    { label: 'Grade B', data: dataB, backgroundColor: '#f59e0b', borderRadius: 3 },
-                    { label: 'Grade C', data: dataC, backgroundColor: '#f43f5e', borderRadius: 3 }
-                ]
+        const normalizedBarOptions = {
+            chart: {
+                type: 'bar',
+                height: 250,
+                stacked: true,
+                stackType: '100%',
+                fontFamily: 'Inter, sans-serif',
+                toolbar: { show: false }
             },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    x: { stacked: true, grid: { display: false }, ticks: { font: { size: 10 } } },
-                    y: { stacked: true, grid: { color: '#f1f5f9' }, ticks: { stepSize: 1, font: { size: 10 } } }
-                },
-                plugins: {
-                    legend: {
-                        position: 'top',
-                        labels: { boxWidth: 10, font: { size: 11 } }
+            series: [
+                { name: 'Grade A', data: dataA },
+                { name: 'Grade B', data: dataB },
+                { name: 'Grade C (Reject)', data: dataC }
+            ],
+            xaxis: {
+                categories: farmLabels,
+                labels: {
+                    style: { fontSize: '10px', fontFamily: 'Inter, sans-serif' }
+                }
+            },
+            yaxis: {
+                max: 100,
+                labels: {
+                    style: { fontSize: '10px', fontFamily: 'Inter, sans-serif' },
+                    formatter: function (val) {
+                        return `${Math.round(val)}%`;
                     }
                 }
+            },
+            colors: ['#10b981', '#f59e0b', '#f43f5e'],
+            plotOptions: {
+                bar: {
+                    borderRadius: 2,
+                    columnWidth: '45%'
+                }
+            },
+            dataLabels: {
+                enabled: false
+            },
+            legend: {
+                position: 'top',
+                horizontalAlign: 'right',
+                fontSize: '11px',
+                fontFamily: 'Inter, sans-serif',
+                markers: { width: 10, height: 10, radius: 2 }
+            },
+            grid: {
+                borderColor: '#f1f5f9'
+            },
+            tooltip: {
+                y: {
+                    formatter: function (val, { dataPointIndex }) {
+                        const dev = farmLabels[dataPointIndex];
+                        const totalPos = farmMap[dev] ? farmMap[dev].total : 0;
+                        const pct = totalPos > 0 ? ((val / totalPos) * 100).toFixed(1) : 0;
+                        return `${val} Batch (${pct}%)`;
+                    }
+                }
+            },
+            noData: {
+                text: 'Belum ada data riwayat',
+                align: 'center',
+                verticalAlign: 'middle',
+                style: { color: '#64748b', fontSize: '12px' }
             }
-        });
+        };
+
+        const normBarEl = document.getElementById('farmGradeNormalizedChart');
+        if (normBarEl) {
+            const farmGradeNormChart = new ApexCharts(normBarEl, normalizedBarOptions);
+            farmGradeNormChart.render();
+        }
     </script>
 </body>
 </html>

@@ -68,8 +68,7 @@ enum SystemState {
   STATE_PREDIKSI_PROCESS,
   STATE_PREDIKSI_RESULT,
   STATE_PRED_LIST_VIEW,
-  STATE_PRED_ITEM_ACTION,
-  STATE_PRED_PILIH_DISTRIBUSI
+  STATE_PRED_ITEM_ACTION
 };
 
 SystemState currentState = STATE_MENU_UTAMA;
@@ -78,7 +77,6 @@ int menuUtamaCursor = 0;       // 0: Prediksi Susu, 1: Log & Kirim
 int prediksiResultCursor = 0;  // 0: Prediksi Lagi, 1: Kembali
 int predListCursor = 0;
 int itemActionCursor = 0;
-int distribusiCursor = 0;
 
 // =================================================================
 // 1. PIN & HARDWARE
@@ -314,18 +312,18 @@ bool connectStaticWiFi() {
   return true;
 }
 
-void sendSinglePrediction(int index, const char* deliveryMode) {
-  if (index < 0 || index >= predList.size()) return;
+void sendSinglePrediction(int index) {
+  if (index < 0 || index >= (int)predList.size()) return;
   if (!connectStaticWiFi()) return;
 
-  showSendStatus("Mengirim JSON...", "Ke Web FastAPI", deliveryMode);
+  showSendStatus("Mengirim JSON...", "Ke Web FastAPI", "Harap tunggu...");
 
   PredItem item = predList[index];
   char rowBuf[450];
   snprintf(rowBuf, sizeof(rowBuf),
-           "[{\"device_id\":\"%s\",\"alamat\":\"%s\",\"latitude\":%.6f,\"longitude\":%.6f,\"suhu\":%.2f,\"grade\":\"%s\",\"sisa_waktu_menit\":%d,\"metode_pengiriman\":\"%s\"}]",
+           "[{\"device_id\":\"%s\",\"alamat\":\"%s\",\"latitude\":%.6f,\"longitude\":%.6f,\"suhu\":%.2f,\"grade\":\"%s\",\"sisa_waktu_menit\":%d}]",
            item.device_id.c_str(), item.alamat.c_str(), item.latitude, item.longitude,
-           item.suhu, item.grade.c_str(), item.sisa_waktu_menit, deliveryMode);
+           item.suhu, item.grade.c_str(), item.sisa_waktu_menit);
 
   WiFiClient plainClient;
   HTTPClient http;
@@ -420,12 +418,12 @@ void renderDisplay() {
 
           if (predList.empty()) {
             display.print(isSelected ? "> [Kembali]" : "  [Kembali]");
-          } else if (targetRow < predList.size()) {
+          } else if (targetRow < (int)predList.size()) {
             PredItem item = predList[targetRow];
             String shortGrade = item.grade;
             shortGrade.replace("GRADE_", "GR_");
             display.printf("%s#%d %s %.1fC", isSelected ? ">" : " ", targetRow + 1, shortGrade.c_str(), item.suhu);
-          } else if (targetRow == predList.size()) {
+          } else if (targetRow == (int)predList.size()) {
             display.print(isSelected ? "> [Hapus Semua]" : "  [Hapus Semua]");
           } else {
             display.print(isSelected ? "> [Kembali]" : "  [Kembali]");
@@ -457,22 +455,6 @@ void renderDisplay() {
         display.print(itemActionCursor == 2 ? "> 3. Batal/Kembali" : "  3. Batal/Kembali");
         break;
       }
-
-    case STATE_PRED_PILIH_DISTRIBUSI:
-      display.setTextSize(1);
-      display.setCursor(8, 0);
-      display.print("METODE DISTRIBUSI");
-      display.drawLine(0, 9, 128, 9, SSD1306_WHITE);
-      display.setCursor(5, 14);
-      display.print(distribusiCursor == 0 ? "> 1. Dijemput KUD" : "  1. Dijemput KUD");
-      display.setCursor(5, 26);
-      display.print(distribusiCursor == 1 ? "> 2. Diantar Sendiri" : "  2. Diantar Sendiri");
-      display.setCursor(5, 38);
-      display.print(distribusiCursor == 2 ? "> 3. Batal" : "  3. Batal");
-      display.drawLine(0, 50, 128, 50, SSD1306_WHITE);
-      display.setCursor(0, 54);
-      display.print("Pilih opsi distribusi");
-      break;
 
     case STATE_PREDIKSI_IDLE:
       display.setTextSize(1);
@@ -680,11 +662,11 @@ void loop() {
         if (actionLongPress) {
           if (predList.empty()) {
             currentState = STATE_MENU_UTAMA;
-          } else if (predListCursor < predList.size()) {
+          } else if (predListCursor < (int)predList.size()) {
             selectedPredIndex = predListCursor;
             itemActionCursor = 0;
             currentState = STATE_PRED_ITEM_ACTION;
-          } else if (predListCursor == predList.size()) {
+          } else if (predListCursor == (int)predList.size()) {
             predList.clear();
             LittleFS.remove("/prediksi_log.json");
             predListCursor = 0;
@@ -699,8 +681,10 @@ void loop() {
       if (actionShortClick) itemActionCursor = (itemActionCursor + 1) % 3;
       if (actionLongPress) {
         if (itemActionCursor == 0) {
-          distribusiCursor = 0;
-          currentState = STATE_PRED_PILIH_DISTRIBUSI;
+          // Kirim langsung tanpa memilih metode distribusi
+          sendSinglePrediction(selectedPredIndex);
+          predListCursor = 0;
+          currentState = STATE_PRED_LIST_VIEW;
         } else if (itemActionCursor == 1) {
           predList.erase(predList.begin() + selectedPredIndex);
           rewritePredListToFlash();
@@ -708,21 +692,6 @@ void loop() {
           currentState = STATE_PRED_LIST_VIEW;
         } else {
           currentState = STATE_PRED_LIST_VIEW;
-        }
-      }
-      break;
-
-    case STATE_PRED_PILIH_DISTRIBUSI:
-      if (actionShortClick) distribusiCursor = (distribusiCursor + 1) % 3;
-      if (actionLongPress) {
-        if (distribusiCursor == 0) {
-          sendSinglePrediction(selectedPredIndex, "DIJEMPUT");
-          currentState = STATE_PRED_LIST_VIEW;
-        } else if (distribusiCursor == 1) {
-          sendSinglePrediction(selectedPredIndex, "ANTAR");
-          currentState = STATE_PRED_LIST_VIEW;
-        } else {
-          currentState = STATE_PRED_ITEM_ACTION;
         }
       }
       break;

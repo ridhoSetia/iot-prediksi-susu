@@ -21,11 +21,16 @@ except Exception as e:
 # =================================================================
 # 1. INISIALISASI DATABASE & KONSTANTA KUD
 # =================================================================
+# Alur Sistem:
+# 1. Susu diuji dengan alat IoT saat baru diperah oleh peternak (Offline-First).
+# 2. Data uji tersimpan di alat dan baru disinkronkan saat tiba di Pos Penampungan Susu (titik GPS).
+# 3. Armada dari Pusat KUD memantau sisa masa simpan dan mengambil susu di Pos Penampungan.
+# =================================================================
 DB_FILE = os.getenv("DB_PATH", "milk_predictions.db")
 
 KUD_LAT = -0.480810816247826
 KUD_LON = 117.15546525804818
-KUD_NAMA = "Pos KUD Penampungan Susu"
+KUD_NAMA = "Pusat KUD (Pool Armada & Pengolahan)"
 
 
 def hitung_jarak_dan_eta(lat1: float, lon1: float, lat2: float, lon2: float):
@@ -60,7 +65,6 @@ def init_db():
             suhu REAL NOT NULL,
             grade TEXT NOT NULL,
             sisa_waktu_menit INTEGER NOT NULL,
-            metode_pengiriman TEXT NOT NULL DEFAULT 'DIJEMPUT_KUD',
             status TEXT NOT NULL DEFAULT 'PROSES',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -142,7 +146,6 @@ class PredictLogItem(BaseModel):
     suhu: float = Field(..., example=28.45)
     grade: str = Field(..., example="GRADE_A")
     sisa_waktu_menit: int = Field(..., example=175)
-    metode_pengiriman: Optional[str] = Field(default="DIJEMPUT_KUD", example="DIJEMPUT_KUD")
 
 
 class RePredictRequest(BaseModel):
@@ -281,7 +284,6 @@ async def receive_prediction_log(data: Union[List[PredictLogItem], PredictLogIte
             suhu = float(d.get("suhu", 7.0))
             grade = d.get("grade", "GRADE_A")
             sisa_menit = int(d.get("sisa_waktu_menit", 120))
-            metode = d.get("metode_pengiriman") or "DIJEMPUT_KUD"
 
             jarak_km, travel_min = hitung_jarak_dan_eta(KUD_LAT, KUD_LON, lat, lon)
 
@@ -289,12 +291,12 @@ async def receive_prediction_log(data: Union[List[PredictLogItem], PredictLogIte
                 """
                 INSERT INTO predictions (
                     device_id, alamat, latitude, longitude, jarak_km, jarak_tempuh_menit,
-                    suhu, grade, sisa_waktu_menit, metode_pengiriman, status, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROSES', ?)
+                    suhu, grade, sisa_waktu_menit, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PROSES', ?)
                 """,
                 (
                     dev_id, alamat, lat, lon, jarak_km, travel_min,
-                    suhu, grade, sisa_menit, metode, waktu_sekarang
+                    suhu, grade, sisa_menit, waktu_sekarang
                 ),
             )
             rec_id = c.lastrowid
@@ -309,7 +311,6 @@ async def receive_prediction_log(data: Union[List[PredictLogItem], PredictLogIte
                 "suhu": suhu,
                 "grade": grade,
                 "sisa_waktu_menit": sisa_menit,
-                "metode_pengiriman": metode,
                 "status": "PROSES",
                 "created_at": waktu_sekarang,
             })
@@ -392,7 +393,6 @@ async def get_dashboard_data():
             "sisa_waktu_sekarang": curr_sisa,
             "status_kualitas": status_kual,
             "menit_berlalu": menit_lalu,
-            "metode_pengiriman": r["metode_pengiriman"],
             "status": r["status"] if "status" in r.keys() else "PROSES",
             "created_at": created_str
         })

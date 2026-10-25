@@ -52,7 +52,7 @@ const kudIcon = createMarkerIcon("blue");
 L.marker([kudInfo.lat, kudInfo.lon], { icon: kudIcon }).addTo(map).bindPopup(`
     <div class="text-xs">
         <span class="font-bold text-slate-800">${kudInfo.nama}</span>
-        <p class="text-slate-500 mt-0.5">Basis Armada Pusat</p>
+        <p class="text-slate-500 mt-0.5">Pool Armada & Tangki Pengolahan Pusat</p>
     </div>
 `);
 
@@ -191,37 +191,79 @@ function updateStatCards(data) {
 }
 
 // Chart Donut Kualitas Susu
-const ctxDoughnut = document
-  .getElementById("gradeDoughnutChart")
-  .getContext("2d");
-const gradeChart = new Chart(ctxDoughnut, {
-  type: "doughnut",
-  data: {
+const gradeChartEl = document.getElementById("gradeDoughnutChart");
+let gradeChart = null;
+
+if (gradeChartEl) {
+  const gradeChartOptions = {
+    chart: {
+      type: "donut",
+      height: 230,
+      fontFamily: "Inter, sans-serif",
+      toolbar: { show: false },
+    },
+    series: hitungGradeStats(dbData),
     labels: ["Grade A", "Grade B", "Grade C / Rusak"],
-    datasets: [
-      {
-        data: hitungGradeStats(dbData),
-        backgroundColor: ["#10b981", "#f59e0b", "#f43f5e"],
-        borderWidth: 2,
-        borderColor: "#ffffff",
-      },
-    ],
-  },
-  options: {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        position: "bottom",
-        labels: {
-          boxWidth: 12,
-          font: { size: 11, family: "Inter, sans-serif" },
+    colors: ["#10b981", "#f59e0b", "#f43f5e"],
+    stroke: {
+      show: true,
+      colors: ["#ffffff"],
+      width: 2,
+    },
+    plotOptions: {
+      pie: {
+        donut: {
+          size: "70%",
+          labels: {
+            show: true,
+            total: {
+              show: true,
+              label: "Total Susu",
+              fontSize: "12px",
+              fontFamily: "Inter, sans-serif",
+              fontWeight: 600,
+              color: "#64748b",
+              formatter: function (w) {
+                return w.globals.seriesTotals.reduce((a, b) => a + b, 0);
+              },
+            },
+          },
         },
       },
     },
-    cutout: "70%",
-  },
-});
+    dataLabels: {
+      enabled: false,
+    },
+    legend: {
+      position: "bottom",
+      fontSize: "11px",
+      fontFamily: "Inter, sans-serif",
+      markers: {
+        width: 12,
+        height: 12,
+        radius: 3,
+      },
+    },
+    tooltip: {
+      y: {
+        formatter: (val) => `${val} Sampel`,
+      },
+    },
+    noData: {
+      text: "Tidak ada data",
+      align: "center",
+      verticalAlign: "middle",
+      style: {
+        color: "#64748b",
+        fontSize: "12px",
+        fontFamily: "Inter, sans-serif",
+      },
+    },
+  };
+
+  gradeChart = new ApexCharts(gradeChartEl, gradeChartOptions);
+  gradeChart.render();
+}
 
 // Chart Urgensi (Hanya log yang belum selesai)
 function getUrgencyData(data) {
@@ -245,90 +287,158 @@ function getUrgencyData(data) {
 }
 
 const initUrgency = getUrgencyData(dbData);
-const ctxBar = document.getElementById("urgencyBarChart").getContext("2d");
-const urgencyChart = new Chart(ctxBar, {
-  type: "bar",
-  data: {
-    labels: initUrgency.labels,
-    datasets: [
-      {
-        label: "Sisa Masa Simpan",
-        data: initUrgency.shelfLife,
-        backgroundColor: "#ef4444",
+const urgencyChartEl = document.getElementById("urgencyBarChart");
+let urgencyChart = null;
+
+if (urgencyChartEl) {
+  const urgencyOptions = {
+    chart: {
+      type: "bar",
+      height: 230,
+      fontFamily: "Inter, sans-serif",
+      toolbar: { show: false },
+    },
+    plotOptions: {
+      bar: {
+        horizontal: true,
         borderRadius: 4,
+        barHeight: "55%",
+      },
+    },
+    dataLabels: {
+      enabled: false,
+    },
+    series: [
+      {
+        name: "Sisa Masa Simpan",
+        data: initUrgency.shelfLife,
       },
       {
-        label: "Estimasi Truk",
+        name: "Estimasi Truk",
         data: initUrgency.eta,
-        backgroundColor: "#0284c7",
-        borderRadius: 4,
       },
     ],
-  },
-  options: {
-    indexAxis: "y",
-    responsive: true,
-    maintainAspectRatio: false,
-    scales: {
-      x: { grid: { color: "#f1f5f9" }, ticks: { font: { size: 10 } } },
-      y: { grid: { display: false }, ticks: { font: { size: 11 } } },
-    },
-    plugins: {
-      legend: { position: "top", labels: { boxWidth: 12, font: { size: 11 } } },
-      tooltip: {
-        callbacks: {
-          afterBody: function (context) {
-            const index = context[0].dataIndex;
-            const currentData = getUrgencyData(dbData);
-            const rawItem = currentData.items ? currentData.items[index] : null;
-            if (!rawItem) return "";
-
-            const eff = getEffectiveItemData(rawItem);
-            const sisa = eff.sisaWaktu;
-            const eta = currentData.eta[index];
-            const diff = sisa - eta;
-
-            if (eff.isRusak) {
-              return [
-                "---------------------",
-                `Mutu: Grade C (${sisa}m - RUSAK)`,
-                "Status: SUSU TELAH RUSAK",
-                `Selisih Waktu: ${diff >= 0 ? "+" + diff : diff} Menit`,
-                "Keputusan: Tolak / Jangan Dicampur Tangki",
-              ];
-            }
-            if (diff >= 0) {
-              return [
-                "---------------------",
-                `Mutu: Grade ${eff.grade} (${sisa}m)`,
-                `Selisih Waktu: +${diff} Menit (Surplus)`,
-                "Keputusan: AMAN Tiba Tepat Waktu",
-              ];
-            } else {
-              return [
-                "---------------------",
-                `Mutu: Grade ${eff.grade} (${sisa}m)`,
-                `Selisih Waktu: ${diff} Menit (Defisit)`,
-                "Keputusan: KRITIS - Terancam Rusak di Jalan",
-              ];
-            }
-          },
+    xaxis: {
+      categories: initUrgency.labels,
+      labels: {
+        style: {
+          fontSize: "10px",
+          fontFamily: "Inter, sans-serif",
         },
       },
     },
-  },
-});
+    yaxis: {
+      labels: {
+        style: {
+          fontSize: "11px",
+          fontFamily: "Inter, sans-serif",
+        },
+      },
+    },
+    colors: ["#ef4444", "#0284c7"],
+    grid: {
+      borderColor: "#f1f5f9",
+    },
+    legend: {
+      position: "top",
+      fontSize: "11px",
+      fontFamily: "Inter, sans-serif",
+      markers: {
+        width: 12,
+        height: 12,
+        radius: 3,
+      },
+    },
+    tooltip: {
+      custom: function ({ series, seriesIndex, dataPointIndex, w }) {
+        const currentData = getUrgencyData(dbData);
+        const rawItem = currentData.items ? currentData.items[dataPointIndex] : null;
+        const label = currentData.labels[dataPointIndex] || "";
+        const shelfVal = currentData.shelfLife[dataPointIndex] ?? 0;
+        const etaVal = currentData.eta[dataPointIndex] ?? 0;
+
+        let extraHtml = "";
+        if (rawItem) {
+          const eff = getEffectiveItemData(rawItem);
+          const sisa = eff.sisaWaktu;
+          const eta = currentData.eta[dataPointIndex];
+          const diff = sisa - eta;
+
+          if (eff.isRusak) {
+            extraHtml = `
+              <div class="border-t border-slate-200 mt-1.5 pt-1.5 text-[11px] text-rose-600 font-medium">
+                <div>Mutu: Grade C (${sisa}m - RUSAK)</div>
+                <div>Status: SUSU TELAH RUSAK DI POS PENAMPUNGAN</div>
+                <div>Selisih: ${diff >= 0 ? "+" + diff : diff} Menit</div>
+                <div>Keputusan: Jangan Diangkut ke Tangki Pusat KUD</div>
+              </div>`;
+          } else if (diff >= 0) {
+            extraHtml = `
+              <div class="border-t border-slate-200 mt-1.5 pt-1.5 text-[11px] text-emerald-600 font-medium">
+                <div>Mutu: Grade ${eff.grade} (${sisa}m)</div>
+                <div>Selisih: +${diff} Menit (Surplus)</div>
+                <div>Keputusan: AMAN - Armada Tiba Tepat Waktu</div>
+              </div>`;
+          } else {
+            extraHtml = `
+              <div class="border-t border-slate-200 mt-1.5 pt-1.5 text-[11px] text-amber-600 font-medium">
+                <div>Mutu: Grade ${eff.grade} (${sisa}m)</div>
+                <div>Selisih: ${diff} Menit (Defisit)</div>
+                <div>Keputusan: KRITIS - Prioritaskan Armada ke Pos Ini</div>
+              </div>`;
+          }
+        }
+
+        return `
+          <div class="p-2.5 text-xs bg-white text-slate-800 shadow-lg rounded-lg border border-slate-200 font-sans leading-relaxed">
+            <div class="font-bold mb-1 text-slate-900">${label}</div>
+            <div class="text-rose-600 font-medium">Sisa Masa Simpan: <b>${shelfVal} m</b></div>
+            <div class="text-sky-600 font-medium">Estimasi Armada KUD: <b>${etaVal} m</b></div>
+            ${extraHtml}
+          </div>
+        `;
+      },
+    },
+    noData: {
+      text: "Tidak ada pengiriman aktif",
+      align: "center",
+      verticalAlign: "middle",
+      style: {
+        color: "#64748b",
+        fontSize: "12px",
+        fontFamily: "Inter, sans-serif",
+      },
+    },
+  };
+
+  urgencyChart = new ApexCharts(urgencyChartEl, urgencyOptions);
+  urgencyChart.render();
+}
 
 function refreshCharts() {
   updateStatCards(dbData);
-  gradeChart.data.datasets[0].data = hitungGradeStats(dbData);
-  gradeChart.update();
+  if (gradeChart) {
+    gradeChart.updateSeries(hitungGradeStats(dbData));
+  }
 
-  const urg = getUrgencyData(dbData);
-  urgencyChart.data.labels = urg.labels;
-  urgencyChart.data.datasets[0].data = urg.shelfLife;
-  urgencyChart.data.datasets[1].data = urg.eta;
-  urgencyChart.update();
+  if (urgencyChart) {
+    const urg = getUrgencyData(dbData);
+    urgencyChart.updateOptions({
+      xaxis: {
+        categories: urg.labels,
+      },
+      series: [
+        {
+          name: "Sisa Masa Simpan",
+          data: urg.shelfLife,
+        },
+        {
+          name: "Estimasi Truk",
+          data: urg.eta,
+        },
+      ],
+    });
+  }
 }
 
 // Marker Peta
@@ -367,13 +477,13 @@ function pasangMarker(item) {
   const gmapsUrl = `https://www.google.com/maps?q=${item.latitude},${item.longitude}`;
   const popupContent = `
         <div class="text-xs space-y-1.5 font-sans">
-            <div class="font-bold text-slate-800">${item.device_id}</div>
+            <div class="font-bold text-slate-800">Pos Penampungan: ${item.device_id}</div>
             <div class="text-slate-600 text-[11px]">${item.alamat}</div>
-            <div class="text-slate-600">Suhu: <b>${item.suhu.toFixed(1)}°C</b> | Mutu: ${gradeDisplay}</div>
-            <div class="text-slate-600">Logistik Truk: <b>${etaMenit}m</b> | Hasil: ${hasilBadge}</div>
-            <div class="text-slate-600">Status: <b>${item.status || "PROSES"}</b></div>
+            <div class="text-slate-600">Suhu Perah: <b>${item.suhu.toFixed(1)}°C</b> | Mutu: ${gradeDisplay}</div>
+            <div class="text-slate-600">Armada KUD: <b>${etaMenit}m</b> | Status: ${hasilBadge}</div>
+            <div class="text-slate-600">Status Pengambilan: <b>${item.status === 'SELESAI' ? 'Tiba di Pusat KUD' : 'Menunggu Dijemput'}</b></div>
             <div class="pt-1 mt-1 border-t border-slate-200">
-                <a href="${gmapsUrl}" target="_blank" class="text-sky-600 font-medium hover:underline">Google Maps</a>
+                <a href="${gmapsUrl}" target="_blank" class="text-sky-600 font-medium hover:underline">Buka Google Maps</a>
             </div>
         </div>
     `;
@@ -405,7 +515,7 @@ function renderRouteVisualComparison(distKm, durasiMenit, deviceId) {
 
   const nameEl = document.getElementById("routeDestName");
   if (nameEl) {
-    nameEl.innerText = `${deviceId}${item && item.alamat ? " • " + item.alamat : ""}`;
+    nameEl.innerText = `Rute Armada: Pusat KUD ➔ ${deviceId}${item && item.alamat ? " (" + item.alamat + ")" : ""}`;
   }
 
   const badgeGradeEl = document.getElementById("routeBadgeGrade");
@@ -459,15 +569,15 @@ function renderRouteVisualComparison(distKm, durasiMenit, deviceId) {
     if (isC) {
       resultEl.className =
         "text-[11px] px-2.5 py-1.5 rounded-lg border bg-rose-50 border-rose-200 text-rose-800 font-medium leading-tight";
-      resultEl.innerHTML = `Melewati masa simpan — Jangan dicampur ke tangki KUD`;
+      resultEl.innerHTML = `Melewati batas masa simpan perah — Jangan diangkut ke tangki Pusat KUD`;
     } else if (diff < 0) {
       resultEl.className =
         "text-[11px] px-2.5 py-1.5 rounded-lg border bg-amber-50 border-amber-200 text-amber-800 font-medium leading-tight";
-      resultEl.innerHTML = `Defisit ${Math.abs(diff)} menit — Truk berisiko tiba setelah susu turun mutu`;
+      resultEl.innerHTML = `Defisit ${Math.abs(diff)} menit — Armada KUD berisiko tiba setelah susu turun mutu di Pos Penampungan`;
     } else {
       resultEl.className =
         "text-[11px] px-2.5 py-1.5 rounded-lg border bg-emerald-50 border-emerald-200 text-emerald-800 font-medium leading-tight";
-      resultEl.innerHTML = `Pengiriman aman — Truk tiba ${diff} menit sebelum batas mutu turun`;
+      resultEl.innerHTML = `Penjemputan aman — Armada tiba di Pos Penampungan ${diff} menit sebelum batas mutu turun`;
     }
   }
 }
@@ -605,6 +715,12 @@ async function navigasiKePeternakan(
 function bukaModalKonfirmasi(id, deviceId, gradeText) {
   targetLogIdSelesai = id;
 
+  const item = dbData.find((d) => d.id === id);
+  const modalConfirmText = document.getElementById("modalConfirmText");
+  if (modalConfirmText) {
+    modalConfirmText.innerText = `Apakah armada KUD sudah selesai mengambil susu dari Pos Penampungan ${deviceId}${item && item.alamat ? " (" + item.alamat + ")" : ""} dan tiba di Pusat KUD?`;
+  }
+
   const modalDeviceId = document.getElementById("modalDeviceId");
   if (modalDeviceId) modalDeviceId.innerText = deviceId;
 
@@ -709,8 +825,8 @@ function renderTabel(data, highlightedId = null) {
   if (!data || data.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="7" class="py-12 text-center text-slate-400">
-          Belum ada data pengiriman susu untuk hari ini.
+        <td colspan="6" class="py-12 text-center text-slate-400">
+          Belum ada data setoran susu di pos penampungan untuk hari ini.
         </td>
       </tr>
     `;
@@ -723,12 +839,6 @@ function renderTabel(data, highlightedId = null) {
     const isSelesai = item.status === "SELESAI";
     const tr = document.createElement("tr");
     tr.className = `hover:bg-slate-50 transition-colors ${item.id === highlightedId ? "row-new-highlight" : ""} ${isSelesai ? "opacity-75 bg-slate-50/50" : ""}`;
-
-    const distBadge = (item.metode_pengiriman || "")
-      .toUpperCase()
-      .includes("JEMPUT")
-      ? '<span class="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-medium text-[11px] border border-blue-200">Jemput</span>'
-      : '<span class="bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-medium text-[11px] border border-slate-200">Antar</span>';
 
     const eff = getEffectiveItemData(item);
     const gr = eff.grade;
@@ -797,7 +907,6 @@ function renderTabel(data, highlightedId = null) {
         <td class="py-2 px-3 whitespace-nowrap">
             ${gradeBadgeContent}
         </td>
-        <td class="py-2 px-3 whitespace-nowrap">${distBadge}</td>
         <td class="py-2 px-2 text-center align-middle">${actionButtons}</td>
     `;
     tbody.appendChild(tr);

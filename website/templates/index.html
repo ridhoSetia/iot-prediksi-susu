@@ -8,7 +8,8 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="/static/css/style.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- ApexCharts -->
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 </head>
 <body class="bg-slate-100 text-slate-800 antialiased min-h-screen flex flex-col md:flex-row">
     
@@ -41,8 +42,8 @@
     <div class="flex-1 flex flex-col min-w-0 overflow-y-auto">
         <header class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
             <div>
-                <h1 class="text-lg font-bold text-slate-900">Operasional Hari Ini</h1>
-                <p class="text-xs text-slate-500 mt-0.5">Pantauan logistik dan mutu susu per tanggal {{ tgl_hari_ini }}</p>
+                <h1 class="text-lg font-bold text-slate-900">Operasional Logistik Susu</h1>
+                <p class="text-xs text-slate-500 mt-0.5">Monitoring penjemputan armada dari Pos Penampungan ke Pusat KUD per tanggal {{ tgl_hari_ini }}</p>
             </div>
         </header>
 
@@ -52,19 +53,18 @@
                 <!-- Tabel Log -->
                 <div class="lg:col-span-7 bg-white rounded-lg border border-slate-200 shadow-sm flex flex-col h-[480px]">
                     <div class="p-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-50/70 rounded-t-lg">
-                        <span class="text-xs font-semibold text-slate-700">Daftar Penjemputan / Antaran</span>
+                        <span class="text-xs font-semibold text-slate-700">Daftar Pos Penampungan (Siap Jemput)</span>
                         <span id="logCounter" class="text-xs font-medium text-slate-500">0 Data</span>
                     </div>
                     <div class="overflow-x-auto overflow-y-auto flex-1">
                         <table class="w-full border-collapse text-left text-xs min-w-[700px]">
                             <thead class="bg-slate-50 text-slate-500 font-semibold sticky top-0 border-b border-slate-200 z-10">
                                 <tr>
-                                    <th class="py-2.5 px-3 whitespace-nowrap">Tanggal & Waktu</th>
-                                    <th class="py-2.5 px-3 whitespace-nowrap">Device</th>
-                                    <th class="py-2.5 px-3">Alamat</th>
-                                    <th class="py-2.5 px-3 text-right">Suhu</th>
+                                    <th class="py-2.5 px-3 whitespace-nowrap">Waktu Perah</th>
+                                    <th class="py-2.5 px-3 whitespace-nowrap">ID Alat</th>
+                                    <th class="py-2.5 px-3">Lokasi Pos Penampungan</th>
+                                    <th class="py-2.5 px-3 text-right">Suhu Perah</th>
                                     <th class="py-2.5 px-3 whitespace-nowrap">Grade</th>
-                                    <th class="py-2.5 px-3">Metode</th>
                                     <th class="py-2.5 px-3 text-center">Aksi</th>
                                 </tr>
                             </thead>
@@ -118,17 +118,17 @@
             <!-- Charts -->
             <div class="grid grid-cols-1 md:grid-cols-12 gap-6">
                 <div class="md:col-span-4 bg-white rounded-lg border border-slate-200 shadow-sm p-4 flex flex-col h-[280px]">
-                    <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Proporsi Kualitas Susu</h3>
-                    <div class="relative flex-1 min-h-0">
-                        <canvas id="gradeDoughnutChart"></canvas>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Proporsi Mutu Susu di Pos Penampungan</h3>
+                    <div class="relative flex-1 min-h-0 flex items-center justify-center">
+                        <div id="gradeDoughnutChart" class="w-full"></div>
                     </div>
                 </div>
                 <div class="md:col-span-8 bg-white rounded-lg border border-slate-200 shadow-sm p-4 flex flex-col h-[280px]">
                     <div class="flex items-center justify-between mb-2">
-                        <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500">Sisa Masa Simpan vs Waktu Tempuh (Menit)</h3>
+                        <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500">Sisa Masa Simpan vs Estimasi Armada KUD (Menit)</h3>
                     </div>
                     <div class="relative flex-1 min-h-0">
-                        <canvas id="urgencyBarChart"></canvas>
+                        <div id="urgencyBarChart" class="w-full h-full"></div>
                     </div>
                 </div>
             </div>
@@ -140,9 +140,9 @@
         <div class="bg-white rounded-xl border border-slate-200 shadow-xl max-w-sm w-full p-5 space-y-4">
             <div class="flex items-start gap-3">
                 <div>
-                    <h3 class="text-sm font-bold text-slate-800">Konfirmasi Penerimaan Susu</h3>
+                    <h3 class="text-sm font-bold text-slate-800">Konfirmasi Pengambilan Susu</h3>
                     <p class="text-xs text-slate-500 mt-1" id="modalConfirmText">
-                        Apakah susu dari peternakan ini sudah tiba/diambil Pos KUD?
+                        Apakah armada KUD sudah selesai mengambil susu dari Pos Penampungan ini dan tiba di Pusat KUD?
                     </p>
                 </div>
             </div>
@@ -165,7 +165,7 @@
                     Batal
                 </button>
                 <button type="button" id="btnKonfirmasiSelesai" onclick="konfirmasiSelesaiAction()" class="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition-colors">
-                    Ya, Selesai
+                    Ya, Tiba di Pusat KUD
                 </button>
             </div>
         </div>
@@ -173,7 +173,7 @@
 
     <script>
         let dbData = {{ logs_json | safe if logs_json else "[]" }};
-        const kudInfo = {{ kud_json | safe if kud_json else '{"lat": -0.480810816247826, "lon": 117.15546525804818, "nama": "Pos KUD Penampungan Susu"}' }};
+        const kudInfo = {{ kud_json | safe if kud_json else '{"lat": -0.480810816247826, "lon": 117.15546525804818, "nama": "Pusat KUD (Pool Armada & Pengolahan)"}' }};
         const currentFilterDate = "{{ tgl_hari_ini or '' }}";
     </script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
