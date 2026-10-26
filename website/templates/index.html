@@ -175,22 +175,13 @@
         let dbData = {{ logs_json | safe if logs_json else "[]" }};
         const kudInfo = {{ kud_json | safe if kud_json else '{"lat": -0.480810816247826, "lon": 117.15546525804818, "nama": "Pusat KUD (Pool Armada & Pengolahan)"}' }};
         const currentFilterDate = "{{ tgl_hari_ini or '' }}";
-        // Pre-hitung _initial_sisa yang sudah terkoreksi sejak created_at hingga saat halaman dimuat.
-        // Ini memastikan countdown sisa waktu tetap akurat setelah navigasi riwayat → dasbor,
-        // karena _receivedAt hanya tersedia untuk data yang masuk via WebSocket.
+        // sisa_waktu_menit sudah dikoreksi oleh server saat halaman dirender.
+        // Set _initial_sisa dan _receivedAt = pageLoadTime agar countdown berjalan
+        // dari titik halaman dimuat, konsisten baik via reload maupun navigasi riwayat → dasbor.
         const pageLoadTime = Date.now();
         dbData.forEach(function(item) {
             if (item.status === 'SELESAI') return;
-            var rawSisa = Number(item.sisa_waktu_menit);
-            var elapsedSinceCreated = 0;
-            if (item.created_at) {
-                var createdMs = new Date(item.created_at.replace(' ', 'T')).getTime();
-                if (!isNaN(createdMs)) {
-                    var diff = Math.floor((pageLoadTime - createdMs) / 60000);
-                    if (diff >= 0 && diff < 1440) elapsedSinceCreated = diff;
-                }
-            }
-            item._initial_sisa = Math.max(0, rawSisa - elapsedSinceCreated);
+            item._initial_sisa = Number(item.sisa_waktu_menit);
             item._initial_grade = item.grade;
             item._receivedAt = pageLoadTime;
         });

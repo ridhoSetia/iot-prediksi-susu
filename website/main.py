@@ -225,7 +225,22 @@ async def dashboard_page(request: Request, date: Optional[str] = None):
         (jam_mulai, jam_selesai),
     )
     rows = c.fetchall()
-    logs = [dict(row) for row in rows]
+    sekarang_render = datetime.datetime.now()
+
+    logs = []
+    for row in rows:
+        item = dict(row)
+        # Koreksi sisa_waktu_menit berdasarkan waktu nyata saat halaman dirender di server.
+        # Ini memastikan client langsung mendapat nilai yang akurat tanpa perlu
+        # menghitung ulang elapsed time dari created_at (yang rawan salah parse timezone).
+        if item.get("status") != "SELESAI":
+            try:
+                created_dt = datetime.datetime.strptime(item["created_at"], "%Y-%m-%d %H:%M:%S")
+                elapsed_min = int((sekarang_render - created_dt).total_seconds() / 60)
+                item["sisa_waktu_menit"] = max(0, item["sisa_waktu_menit"] - elapsed_min)
+            except Exception:
+                pass
+        logs.append(item)
     conn.close()
 
     return templates.TemplateResponse(
