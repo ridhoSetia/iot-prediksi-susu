@@ -50,7 +50,7 @@ def hitung_jarak_dan_eta(lat1: float, lon1: float, lat2: float, lon2: float):
 
 
 def init_db():
-    """Membuat tabel prediksi dan memastikan semua kolom tersedia."""
+    """Membuat tabel prediksi, memastikan kolom tersedia, dan migrasi skema lama."""
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute('''
@@ -69,6 +69,8 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+
+    # Tambah kolom yang mungkin belum ada di DB lama
     for col, col_type, default_val in [
         ("jarak_km", "REAL", "0.0"),
         ("jarak_tempuh_menit", "INTEGER", "5"),
@@ -79,8 +81,53 @@ def init_db():
         except Exception:
             pass
     conn.commit()
-    conn.close()
 
+    # ---- Migrasi: buang kolom lama 'metode_pengiriman' (NOT NULL) ----
+    c.execute("PRAGMA table_info(predictions)")
+    existing_cols = [row[1] for row in c.fetchall()]
+
+    if "metode_pengiriman" in existing_cols:
+        print("[MIGRASI] Menghapus kolom lama 'metode_pengiriman'...")
+        try:
+            # SQLite >= 3.35
+            c.execute("ALTER TABLE predictions DROP COLUMN metode_pengiriman")
+            conn.commit()
+        except Exception as e:
+            print(f"[MIGRASI] DROP COLUMN gagal ({e}), membangun ulang tabel...")
+            conn.rollback()
+            c.execute("DROP TABLE IF EXISTS predictions_new")
+            c.execute('''
+                CREATE TABLE predictions_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    device_id TEXT NOT NULL,
+                    alamat TEXT NOT NULL,
+                    latitude REAL NOT NULL,
+                    longitude REAL NOT NULL,
+                    jarak_km REAL NOT NULL DEFAULT 0.0,
+                    jarak_tempuh_menit INTEGER NOT NULL DEFAULT 5,
+                    suhu REAL NOT NULL,
+                    grade TEXT NOT NULL,
+                    sisa_waktu_menit INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'PROSES',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            c.execute('''
+                INSERT INTO predictions_new (
+                    id, device_id, alamat, latitude, longitude, jarak_km,
+                    jarak_tempuh_menit, suhu, grade, sisa_waktu_menit, status, created_at
+                )
+                SELECT
+                    id, device_id, alamat, latitude, longitude, jarak_km,
+                    jarak_tempuh_menit, suhu, grade, sisa_waktu_menit, status, created_at
+                FROM predictions
+            ''')
+            c.execute("DROP TABLE predictions")
+            c.execute("ALTER TABLE predictions_new RENAME TO predictions")
+            conn.commit()
+        print("[MIGRASI] Selesai.")
+
+    conn.close()
 
 init_db()
 
