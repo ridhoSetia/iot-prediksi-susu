@@ -4,6 +4,7 @@
 #include <Wire.h>
 #include <LittleFS.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
@@ -18,7 +19,7 @@
 const char* WIFI_SSID = "Gada Kuota";
 const char* WIFI_PASSWORD = "1234567891011";
 
-const char* FASTAPI_LOG_URL = "http://10.124.199.140:7000/api/predict-log";
+const char* FASTAPI_LOG_URL = "https://kud.iotlab.my.id/api/predict-log";
 
 const char* DEVICE_ID = "FARMMERRY-001";
 const char* ALAMAT_PETERNAKAN = "Farm Mery, Mugirejo, Kec. Sungai Pinang";
@@ -325,13 +326,34 @@ void sendSinglePrediction(int index) {
            item.device_id.c_str(), item.alamat.c_str(), item.latitude, item.longitude,
            item.suhu, item.grade.c_str(), item.sisa_waktu_menit);
 
-  WiFiClient plainClient;
-  HTTPClient http;
-  http.setTimeout(5000);
-  http.begin(plainClient, FASTAPI_LOG_URL);
-  http.addHeader("Content-Type", "application/json");
+  Serial.println("[HTTP] Payload:");
+  Serial.println(rowBuf);
 
-  int code = http.POST((uint8_t*)rowBuf, strlen(rowBuf));
+  // HTTPS: wajib pakai WiFiClientSecure (bukan WiFiClient biasa)
+  WiFiClientSecure secureClient;
+  secureClient.setInsecure();  // lewati verifikasi sertifikat (cukup untuk prototipe)
+
+  HTTPClient http;
+  http.setTimeout(10000);
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+
+  int code = -1;
+  if (http.begin(secureClient, FASTAPI_LOG_URL)) {
+    http.addHeader("Content-Type", "application/json");
+    code = http.POST((uint8_t*)rowBuf, strlen(rowBuf));
+
+    Serial.printf("[HTTP] Status code: %d\n", code);
+    if (code > 0) {
+      Serial.println("[HTTP] Respon server:");
+      Serial.println(http.getString());
+    } else {
+      Serial.printf("[HTTP] Error: %s\n", http.errorToString(code).c_str());
+    }
+    http.end();
+  } else {
+    Serial.println("[HTTP] http.begin() gagal");
+  }
+
   if (code == 200) {
     setRgbColor(false, true, false);
     showSendStatus("SUKSES TERKIRIM!", "Data Diterima Web", "Menghapus dari Flash");
@@ -341,8 +363,8 @@ void sendSinglePrediction(int index) {
     setRgbColor(true, false, false);
     showSendStatus("Gagal Kirim JSON!", ("HTTP: " + String(code)).c_str(), "Data Tetap Tersimpan");
   }
+
   delay(2000);
-  http.end();
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
   setRgbColor(false, false, false);

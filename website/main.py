@@ -259,12 +259,9 @@ async def mark_complete(log_id: int):
 
 
 @app.post("/api/predict-log", summary="Sinkronisasi Log dari ESP32-S3")
-async def receive_prediction_log(data: Union[List[PredictLogItem], PredictLogItem, dict, List[dict]]):
+async def receive_prediction_log(data: Union[List[PredictLogItem], PredictLogItem]):
     """Menerima rekaman log pengujian dari mikrokontroler ESP32-S3."""
-    if isinstance(data, list):
-        raw_items = data
-    else:
-        raw_items = [data]
+    raw_items = data if isinstance(data, list) else [data]
 
     if not raw_items:
         raise HTTPException(status_code=400, detail="Data log kosong.")
@@ -276,14 +273,14 @@ async def receive_prediction_log(data: Union[List[PredictLogItem], PredictLogIte
     c = conn.cursor()
     try:
         for item in raw_items:
-            d = item if isinstance(item, dict) else item.model_dump()
-            dev_id = d.get("device_id", "UNKNOWN")
-            alamat = d.get("alamat", "Desa Sukamaju RT 02")
-            lat = float(d.get("latitude", -0.48))
-            lon = float(d.get("longitude", 117.20))
-            suhu = float(d.get("suhu", 7.0))
-            grade = d.get("grade", "GRADE_A")
-            sisa_menit = int(d.get("sisa_waktu_menit", 120))
+            d = item.model_dump()
+            dev_id = d["device_id"]
+            alamat = d["alamat"]
+            lat = float(d["latitude"])
+            lon = float(d["longitude"])
+            suhu = float(d["suhu"])
+            grade = d["grade"]
+            sisa_menit = int(d["sisa_waktu_menit"])
 
             jarak_km, travel_min = hitung_jarak_dan_eta(KUD_LAT, KUD_LON, lat, lon)
 
@@ -328,9 +325,8 @@ async def receive_prediction_log(data: Union[List[PredictLogItem], PredictLogIte
         "status": "SUCCESS",
         "message": f"Berhasil menyimpan {len(broadcast_list)} rekaman log.",
         "inserted": len(broadcast_list),
-        "items": broadcast_list
+        "items": broadcast_list,
     }
-
 
 @app.get("/api/dashboard-data", summary="Polling Pemantauan Mutu Dinamis")
 async def get_dashboard_data():
