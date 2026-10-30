@@ -1,3 +1,5 @@
+name: iot-prediksi-susu
+
 services:
   web:
     build:
